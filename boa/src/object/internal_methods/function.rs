@@ -1,17 +1,10 @@
 use crate::{
-    builtins::function::{Captures, ClosureFunctionSignature, Function, NativeFunctionSignature},
-    environment::{
-        function_environment_record::{BindingStatus, FunctionEnvironmentRecord},
-        lexical_environment::Environment,
+    object::{
+        internal_methods::{InternalObjectMethods, ORDINARY_INTERNAL_METHODS},
+        JsObject,
     },
-    exec::{Executable, InterpreterState},
-    object::{internal_methods::get_prototype_from_constructor, JsObject, ObjectData},
-    syntax::ast::node::RcStatementList,
     Context, JsResult, JsValue,
 };
-
-use super::{InternalObjectMethods, ORDINARY_INTERNAL_METHODS};
-use crate::{builtins::function::arguments::Arguments, context::StandardObjects};
 
 /// Definitions of the internal object methods for function objects.
 ///
@@ -46,7 +39,7 @@ fn function_call(
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    call_construct(obj, this, args, context, false)
+    obj.call_internal(this, args, context)
 }
 
 /// Construct an instance of this object with the specified arguments.
@@ -63,6 +56,7 @@ fn function_construct(
     new_target: &JsValue,
     context: &mut Context,
 ) -> JsResult<JsValue> {
+<<<<<<< HEAD
     call_construct(obj, new_target, args, context, true)
 }
 
@@ -316,4 +310,7 @@ pub(super) fn call_construct(
             }
         }
     }
+=======
+    obj.construct_internal(args, new_target, context)
+>>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
 }

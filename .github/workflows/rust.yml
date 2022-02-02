@@ -13,14 +13,14 @@ jobs:
     name: Tests on Linux
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
           override: true
           profile: minimal
       - name: Cache cargo
-        uses: actions/cache@v2.1.6
+        uses: actions/cache@v2.1.7
         with:
           path: |
             target
@@ -33,41 +33,19 @@ jobs:
           args: --ignore-tests
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v2.1.0
-  test_vm_on_linux:
-    name: Tests on Linux with vm enabled
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2.3.5
-      - uses: actions-rs/toolchain@v1.0.7
-        with:
-          toolchain: stable
-          override: true
-          profile: minimal
-      - name: Cache cargo
-        uses: actions/cache@v2.1.6
-        with:
-          path: |
-            target
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: ---package Boa --lib --features=vm -- vm --nocapture
 
   test_on_windows:
     name: Tests on Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
           override: true
           profile: minimal
       - name: Cache cargo
-        uses: actions/cache@v2.1.6
+        uses: actions/cache@v2.1.7
         with:
           path: target
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
@@ -80,7 +58,7 @@ jobs:
     name: Tests on MacOS
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
@@ -95,7 +73,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
@@ -111,7 +89,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
@@ -119,7 +97,7 @@ jobs:
           profile: minimal
           components: clippy
       - name: Cache cargo
-        uses: actions/cache@v2.1.6
+        uses: actions/cache@v2.1.7
         with:
           path: |
             target
@@ -135,14 +113,14 @@ jobs:
     name: Examples
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
           override: true
           profile: minimal
       - name: Cache cargo
-        uses: actions/cache@v2.1.6
+        uses: actions/cache@v2.1.7
         with:
           path: |
             target
@@ -164,14 +142,14 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2.3.5
+      - uses: actions/checkout@v2.4.0
       - uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: stable
           override: true
           profile: minimal
       - name: Cache cargo
-        uses: actions/cache@v2.1.6
+        uses: actions/cache@v2.1.7
         with:
           path: |
             target

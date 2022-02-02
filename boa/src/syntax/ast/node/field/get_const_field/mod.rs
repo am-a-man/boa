@@ -1,10 +1,8 @@
 use crate::{
-    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
-    Context, JsResult, JsValue,
 };
-use std::fmt;
+use boa_interner::{Interner, Sym, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -34,19 +32,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct GetConstField {
     obj: Box<Node>,
-    field: Box<str>,
+    field: Sym,
 }
 
 impl GetConstField {
     /// Creates a `GetConstField` AST node.
-    pub fn new<V, L>(value: V, label: L) -> Self
+    pub fn new<V>(value: V, field: Sym) -> Self
     where
         V: Into<Node>,
-        L: Into<Box<str>>,
     {
         Self {
             obj: Box::new(value.into()),
-            field: label.into(),
+            field,
         }
     }
 
@@ -56,25 +53,18 @@ impl GetConstField {
     }
 
     /// Gets the name of the field to retrieve.
-    pub fn field(&self) -> &str {
-        &self.field
+    pub fn field(&self) -> Sym {
+        self.field
     }
 }
 
-impl Executable for GetConstField {
-    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
-        let mut obj = self.obj().run(context)?;
-        if !obj.is_object() {
-            obj = JsValue::Object(obj.to_object(context)?);
-        }
-
-        obj.get_field(self.field(), context)
-    }
-}
-
-impl fmt::Display for GetConstField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}", self.obj(), self.field())
+impl ToInternedString for GetConstField {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        format!(
+            "{}.{}",
+            self.obj.to_interned_string(interner),
+            interner.resolve_expect(self.field)
+        )
     }
 }
 

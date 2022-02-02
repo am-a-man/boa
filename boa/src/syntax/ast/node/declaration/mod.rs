@@ -1,13 +1,9 @@
 //! Declaration nodes
 use crate::{
-    builtins::Array,
-    environment::lexical_environment::VariableScope,
-    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::{join_nodes, Identifier, Node},
-    Context, JsResult, JsValue,
 };
-use std::fmt;
+use boa_interner::{Interner, Sym, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -28,6 +24,8 @@ pub use self::{
     async_generator_expr::AsyncGeneratorExpr, function_decl::FunctionDecl,
     function_expr::FunctionExpr,
 };
+
+use super::StatementList;
 
 #[cfg(test)]
 mod tests;
@@ -95,101 +93,6 @@ pub enum DeclarationList {
     Var(Box<[Declaration]>),
 }
 
-impl Executable for DeclarationList {
-    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
-        for decl in self.as_ref() {
-            use DeclarationList::*;
-            let val = match decl.init() {
-                None if self.is_const() => {
-                    return context.throw_syntax_error("missing = in const declaration")
-                }
-                Some(init) => init.run(context)?,
-                None => JsValue::undefined(),
-            };
-
-            match &decl {
-                Declaration::Identifier { ident, init } => {
-                    if self.is_var() && context.has_binding(ident.as_ref())? {
-                        if init.is_some() {
-                            context.set_mutable_binding(ident.as_ref(), val, context.strict())?;
-                        }
-                        continue;
-                    }
-
-                    match &self {
-                        Const(_) => context.create_immutable_binding(
-                            ident.as_ref(),
-                            false,
-                            VariableScope::Block,
-                        )?,
-                        Let(_) => context.create_mutable_binding(
-                            ident.as_ref(),
-                            false,
-                            VariableScope::Block,
-                        )?,
-                        Var(_) => context.create_mutable_binding(
-                            ident.as_ref(),
-                            false,
-                            VariableScope::Function,
-                        )?,
-                    }
-
-                    context.initialize_binding(ident.as_ref(), val)?;
-                }
-                Declaration::Pattern(p) => {
-                    for (ident, value) in p.run(None, context)? {
-                        if self.is_var() && context.has_binding(ident.as_ref())? {
-                            if !value.is_undefined() {
-                                context.set_mutable_binding(
-                                    ident.as_ref(),
-                                    value,
-                                    context.strict(),
-                                )?;
-                            }
-                            continue;
-                        }
-
-                        match &self {
-                            Const(_) => context.create_immutable_binding(
-                                ident.as_ref(),
-                                false,
-                                VariableScope::Block,
-                            )?,
-                            Let(_) => context.create_mutable_binding(
-                                ident.as_ref(),
-                                false,
-                                VariableScope::Block,
-                            )?,
-                            Var(_) => context.create_mutable_binding(
-                                ident.as_ref(),
-                                false,
-                                VariableScope::Function,
-                            )?,
-                        }
-
-                        context.initialize_binding(ident.as_ref(), value)?;
-                    }
-                }
-            }
-        }
-
-        Ok(JsValue::undefined())
-    }
-}
-
-impl DeclarationList {
-    #[allow(dead_code)]
-    pub(in crate::syntax) fn is_let(&self) -> bool {
-        matches!(self, Self::Let(_))
-    }
-    pub(in crate::syntax) fn is_const(&self) -> bool {
-        matches!(self, Self::Const(_))
-    }
-    pub(in crate::syntax) fn is_var(&self) -> bool {
-        matches!(self, Self::Var(_))
-    }
-}
-
 impl AsRef<[Declaration]> for DeclarationList {
     fn as_ref(&self) -> &[Declaration] {
         use DeclarationList::*;
@@ -199,18 +102,21 @@ impl AsRef<[Declaration]> for DeclarationList {
     }
 }
 
-impl fmt::Display for DeclarationList {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ToInternedString for DeclarationList {
+    fn to_interned_string(&self, interner: &Interner) -> String {
         if !self.as_ref().is_empty() {
             use DeclarationList::*;
-            match &self {
-                Let(_) => write!(f, "let ")?,
-                Const(_) => write!(f, "const ")?,
-                Var(_) => write!(f, "var ")?,
-            }
-            join_nodes(f, self.as_ref())
+            format!(
+                "{} {}",
+                match &self {
+                    Let(_) => "let",
+                    Const(_) => "const",
+                    Var(_) => "var",
+                },
+                join_nodes(interner, self.as_ref())
+            )
         } else {
-            Ok(())
+            String::new()
         }
     }
 }
@@ -254,20 +160,18 @@ pub enum Declaration {
     Pattern(DeclarationPattern),
 }
 
-impl fmt::Display for Declaration {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ToInternedString for Declaration {
+    fn to_interned_string(&self, interner: &Interner) -> String {
         match &self {
             Self::Identifier { ident, init } => {
-                fmt::Display::fmt(&ident, f)?;
+                let mut buf = ident.to_interned_string(interner);
                 if let Some(ref init) = &init {
-                    write!(f, " = {}", init)?;
+                    buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
                 }
+                buf
             }
-            Self::Pattern(pattern) => {
-                fmt::Display::fmt(&pattern, f)?;
-            }
+            Self::Pattern(pattern) => pattern.to_interned_string(interner),
         }
-        Ok(())
     }
 }
 
@@ -340,42 +244,21 @@ pub enum DeclarationPattern {
     Array(DeclarationPatternArray),
 }
 
-impl fmt::Display for DeclarationPattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ToInternedString for DeclarationPattern {
+    fn to_interned_string(&self, interner: &Interner) -> String {
         match &self {
-            DeclarationPattern::Object(o) => {
-                fmt::Display::fmt(o, f)?;
-            }
-            DeclarationPattern::Array(a) => {
-                fmt::Display::fmt(a, f)?;
-            }
+            DeclarationPattern::Object(o) => o.to_interned_string(interner),
+            DeclarationPattern::Array(a) => a.to_interned_string(interner),
         }
-        Ok(())
     }
 }
 
 impl DeclarationPattern {
-    /// Initialize the values of an object/array binding pattern.
-    ///
-    /// This function only calls the specific initialization function for either the object or the array binding pattern.
-    /// For specific documentation and references to the ECMAScript spec, look at the called initialization functions.
-    #[inline]
-    pub(in crate::syntax) fn run(
-        &self,
-        init: Option<JsValue>,
-        context: &mut Context,
-    ) -> JsResult<Vec<(Box<str>, JsValue)>> {
-        match &self {
-            DeclarationPattern::Object(pattern) => pattern.run(init, context),
-            DeclarationPattern::Array(pattern) => pattern.run(init, context),
-        }
-    }
-
     /// Gets the list of identifiers declared by the binding pattern.
     ///
     /// A single binding pattern may declare 0 to n identifiers.
     #[inline]
-    pub fn idents(&self) -> Vec<&str> {
+    pub fn idents(&self) -> Vec<Sym> {
         match &self {
             DeclarationPattern::Object(pattern) => pattern.idents(),
             DeclarationPattern::Array(pattern) => pattern.idents(),
@@ -407,21 +290,24 @@ pub struct DeclarationPatternObject {
     init: Option<Node>,
 }
 
-impl fmt::Display for DeclarationPatternObject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt("{", f)?;
+impl ToInternedString for DeclarationPatternObject {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        let mut buf = "{".to_owned();
         for (i, binding) in self.bindings.iter().enumerate() {
-            if i == self.bindings.len() - 1 {
-                write!(f, "{} ", binding)?;
+            let binding = binding.to_interned_string(interner);
+            let str = if i == self.bindings.len() - 1 {
+                format!("{} ", binding)
             } else {
-                write!(f, "{},", binding)?;
-            }
+                format!("{},", binding)
+            };
+
+            buf.push_str(&str);
         }
-        fmt::Display::fmt("}", f)?;
+        buf.push('}');
         if let Some(ref init) = self.init {
-            write!(f, " = {}", init)?;
+            buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
         }
-        Ok(())
+        buf
     }
 }
 
@@ -437,130 +323,19 @@ impl DeclarationPatternObject {
 
     /// Gets the initialization node for the object binding pattern, if any.
     #[inline]
-    pub(in crate::syntax) fn init(&self) -> Option<&Node> {
+    pub(crate) fn init(&self) -> Option<&Node> {
         self.init.as_ref()
     }
 
-    /// Initialize the values of an object binding pattern.
-    ///
-    /// More information:
-    ///  - [ECMAScript reference: 8.5.2 Runtime Semantics: BindingInitialization][spec1]
-    ///  - [ECMAScript reference:14.3.3.3 Runtime Semantics: KeyedBindingInitialization][spec2]
-    ///  - [ECMAScript reference:14.3.3.2 Runtime Semantics: RestBindingInitialization][spec3]
-    ///
-    /// [spec1]: https://tc39.es/ecma262/#sec-runtime-semantics-bindinginitialization
-    /// [spec2]: https://tc39.es/ecma262/#sec-runtime-semantics-keyedbindinginitialization
-    /// [spec3]:  https://tc39.es/ecma262/#sec-destructuring-binding-patterns-runtime-semantics-restbindinginitialization
-    pub(in crate::syntax) fn run(
-        &self,
-        init: Option<JsValue>,
-        context: &mut Context,
-    ) -> JsResult<Vec<(Box<str>, JsValue)>> {
-        let value = if let Some(value) = init {
-            value
-        } else if let Some(node) = &self.init {
-            node.run(context)?
-        } else {
-            JsValue::undefined()
-        };
-
-        if value.is_null() {
-            return Err(context.construct_type_error("Cannot destructure 'null' value"));
-        }
-        if value.is_undefined() {
-            return Err(context.construct_type_error("Cannot destructure 'undefined' value"));
-        }
-
-        // 1. Perform ? RequireObjectCoercible(value).
-        let value = value.require_object_coercible(context)?;
-        let mut results = Vec::new();
-
-        // 2. Return the result of performing BindingInitialization for ObjectBindingPattern using value and environment as arguments.
-        for binding in &self.bindings {
-            use BindingPatternTypeObject::*;
-
-            match binding {
-                // ObjectBindingPattern : { }
-                Empty => {
-                    // 1. Return NormalCompletion(empty).
-                }
-                //  SingleNameBinding : BindingIdentifier Initializer[opt]
-                SingleName {
-                    ident,
-                    property_name,
-                    default_init,
-                } => {
-                    // 1. Let bindingId be StringValue of BindingIdentifier.
-                    // 2. Let lhs be ? ResolveBinding(bindingId, environment).
-
-                    // 3. Let v be ? GetV(value, propertyName).
-                    let mut v = value.get_field(property_name.as_ref(), context)?;
-
-                    // 4. If Initializer is present and v is undefined, then
-                    if let Some(init) = default_init {
-                        if v.is_undefined() {
-                            // TODO: a. not implemented yet:
-                            // a. If IsAnonymousFunctionDefinition(Initializer) is true, then
-                            // i. Set v to the result of performing NamedEvaluation for Initializer with argument bindingId.
-
-                            // b. Else,
-                            // i. Let defaultValue be the result of evaluating Initializer.
-                            // ii. Set v to ? GetValue(defaultValue).
-                            v = init.run(context)?;
-                        }
-                    }
-
-                    // 5. If environment is undefined, return ? PutValue(lhs, v).
-                    // 6. Return InitializeReferencedBinding(lhs, v).
-                    results.push((ident.clone(), v));
-                }
-                //  BindingRestProperty : ... BindingIdentifier
-                RestProperty {
-                    ident,
-                    excluded_keys,
-                } => {
-                    // 1. Let lhs be ? ResolveBinding(StringValue of BindingIdentifier, environment).
-
-                    // 2. Let restObj be ! OrdinaryObjectCreate(%Object.prototype%).
-                    let rest_obj = context.construct_object();
-
-                    // 3. Perform ? CopyDataProperties(restObj, value, excludedNames).
-                    rest_obj.copy_data_properties(value, excluded_keys.clone(), context)?;
-
-                    // 4. If environment is undefined, return PutValue(lhs, restObj).
-                    // 5. Return InitializeReferencedBinding(lhs, restObj).
-                    results.push((ident.clone(), rest_obj.into()));
-                }
-                //  BindingElement : BindingPattern Initializer[opt]
-                BindingPattern {
-                    ident,
-                    pattern,
-                    default_init,
-                } => {
-                    // 1. Let v be ? GetV(value, propertyName).
-                    let mut v = value.get_field(ident.as_ref(), context)?;
-
-                    // 2. If Initializer is present and v is undefined, then
-                    if let Some(init) = default_init {
-                        if v.is_undefined() {
-                            // a. Let defaultValue be the result of evaluating Initializer.
-                            // b. Set v to ? GetValue(defaultValue).
-                            v = init.run(context)?;
-                        }
-                    }
-
-                    // 3. Return the result of performing BindingInitialization for BindingPattern passing v and environment as arguments.
-                    results.append(&mut pattern.run(Some(v), context)?);
-                }
-            }
-        }
-
-        Ok(results)
+    /// Gets the bindings for the object binding pattern.
+    #[inline]
+    pub(crate) fn bindings(&self) -> &Vec<BindingPatternTypeObject> {
+        &self.bindings
     }
 
     /// Gets the list of identifiers declared by the object binding pattern.
     #[inline]
-    pub(in crate::syntax) fn idents(&self) -> Vec<&str> {
+    pub(crate) fn idents(&self) -> Vec<Sym> {
         let mut idents = Vec::new();
 
         for binding in &self.bindings {
@@ -573,13 +348,13 @@ impl DeclarationPatternObject {
                     property_name: _,
                     default_init: _,
                 } => {
-                    idents.push(ident.as_ref());
+                    idents.push(*ident);
                 }
                 RestProperty {
                     ident: property_name,
                     excluded_keys: _,
                 } => {
-                    idents.push(property_name.as_ref());
+                    idents.push(*property_name);
                 }
                 BindingPattern {
                     ident: _,
@@ -612,24 +387,26 @@ pub struct DeclarationPatternArray {
     init: Option<Node>,
 }
 
-impl fmt::Display for DeclarationPatternArray {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt("[", f)?;
+impl ToInternedString for DeclarationPatternArray {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        let mut buf = "[".to_owned();
         for (i, binding) in self.bindings.iter().enumerate() {
             if i == self.bindings.len() - 1 {
                 match binding {
-                    BindingPatternTypeArray::Elision => write!(f, "{}, ", binding)?,
-                    _ => write!(f, "{} ", binding)?,
+                    BindingPatternTypeArray::Elision => {
+                        buf.push_str(&format!("{}, ", binding.to_interned_string(interner)))
+                    }
+                    _ => buf.push_str(&format!("{} ", binding.to_interned_string(interner))),
                 }
             } else {
-                write!(f, "{},", binding)?;
+                buf.push_str(&format!("{},", binding.to_interned_string(interner)));
             }
         }
-        fmt::Display::fmt("]", f)?;
+        buf.push(']');
         if let Some(ref init) = self.init {
-            write!(f, " = {}", init)?;
+            buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
         }
-        Ok(())
+        buf
     }
 }
 
@@ -645,209 +422,19 @@ impl DeclarationPatternArray {
 
     /// Gets the initialization node for the array binding pattern, if any.
     #[inline]
-    pub(in crate::syntax) fn init(&self) -> Option<&Node> {
+    pub(crate) fn init(&self) -> Option<&Node> {
         self.init.as_ref()
     }
 
-    /// Initialize the values of an array binding pattern.
-    ///
-    /// More information:
-    ///  - [ECMAScript reference: 8.5.2 Runtime Semantics: BindingInitialization][spec1]
-    ///  - [ECMAScript reference: 8.5.3 Runtime Semantics: IteratorBindingInitialization][spec2]
-    ///
-    /// [spec1]: https://tc39.es/ecma262/#sec-runtime-semantics-bindinginitialization
-    /// [spec2]: https://tc39.es/ecma262/#sec-runtime-semantics-iteratorbindinginitialization
-    pub(in crate::syntax) fn run(
-        &self,
-        init: Option<JsValue>,
-        context: &mut Context,
-    ) -> JsResult<Vec<(Box<str>, JsValue)>> {
-        let value = if let Some(value) = init {
-            value
-        } else if let Some(node) = &self.init {
-            node.run(context)?
-        } else {
-            JsValue::undefined()
-        };
-
-        if value.is_null() {
-            return Err(context.construct_type_error("Cannot destructure 'null' value"));
-        }
-        if value.is_undefined() {
-            return Err(context.construct_type_error("Cannot destructure 'undefined' value"));
-        }
-
-        // 1. Let iteratorRecord be ? GetIterator(value).
-        let iterator = value.get_iterator(context, None, None)?;
-        let mut result = Vec::new();
-
-        // 2. Let result be IteratorBindingInitialization of ArrayBindingPattern with arguments iteratorRecord and environment.
-        for binding in &self.bindings {
-            use BindingPatternTypeArray::*;
-
-            match binding {
-                // ArrayBindingPattern : [ ]
-                Empty => {
-                    // 1. Return NormalCompletion(empty).
-                }
-                // ArrayBindingPattern : [ Elision ]
-                // Note: This captures all elisions due to our representation of a the binding pattern.
-                Elision => {
-                    // 1. If iteratorRecord.[[Done]] is false, then
-                    // a. Let next be IteratorStep(iteratorRecord).
-                    // b. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                    // c. ReturnIfAbrupt(next).
-                    // d. If next is false, set iteratorRecord.[[Done]] to true.
-                    let _ = iterator.next(context)?;
-
-                    // 2. Return NormalCompletion(empty).
-                }
-                // SingleNameBinding : BindingIdentifier Initializer[opt]
-                SingleName {
-                    ident,
-                    default_init,
-                } => {
-                    // 1. Let bindingId be StringValue of BindingIdentifier.
-                    // 2. Let lhs be ? ResolveBinding(bindingId, environment).
-
-                    let next = iterator.next(context)?;
-
-                    // 3. If iteratorRecord.[[Done]] is false, then
-                    // 4. If iteratorRecord.[[Done]] is true, let v be undefined.
-                    let mut v = if !next.done {
-                        // a. Let next be IteratorStep(iteratorRecord).
-                        // b. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // c. ReturnIfAbrupt(next).
-                        // d. If next is false, set iteratorRecord.[[Done]] to true.
-                        // e. Else,
-                        // i. Let v be IteratorValue(next).
-                        // ii. If v is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // iii. ReturnIfAbrupt(v).
-                        next.value
-                    } else {
-                        JsValue::undefined()
-                    };
-
-                    // 5. If Initializer is present and v is undefined, then
-                    if let Some(init) = default_init {
-                        if v.is_undefined() {
-                            // TODO: a. not implemented yet:
-                            // a. If IsAnonymousFunctionDefinition(Initializer) is true, then
-                            // i. Set v to the result of performing NamedEvaluation for Initializer with argument bindingId.
-
-                            // b. Else,
-                            // i. Let defaultValue be the result of evaluating Initializer.
-                            // ii. Set v to ? GetValue(defaultValue).
-                            v = init.run(context)?
-                        }
-                    }
-
-                    // 6. If environment is undefined, return ? PutValue(lhs, v).
-                    // 7. Return InitializeReferencedBinding(lhs, v).
-                    result.push((ident.clone(), v));
-                }
-                // BindingElement : BindingPattern Initializer[opt]
-                BindingPattern { pattern } => {
-                    let next = iterator.next(context)?;
-
-                    // 1. If iteratorRecord.[[Done]] is false, then
-                    // 2. If iteratorRecord.[[Done]] is true, let v be undefined.
-                    let v = if !next.done {
-                        // a. Let next be IteratorStep(iteratorRecord).
-                        // b. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // c. ReturnIfAbrupt(next).
-                        // d. If next is false, set iteratorRecord.[[Done]] to true.
-                        // e. Else,
-                        // i. Let v be IteratorValue(next).
-                        // ii. If v is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // iii. ReturnIfAbrupt(v).
-                        Some(next.value)
-                    } else {
-                        None
-                    };
-
-                    // 3. If Initializer is present and v is undefined, then
-                    // a. Let defaultValue be the result of evaluating Initializer.
-                    // b. Set v to ? GetValue(defaultValue).
-
-                    // 4. Return the result of performing BindingInitialization of BindingPattern with v and environment as the arguments.
-                    result.append(&mut pattern.run(v, context)?);
-                }
-                // BindingRestElement : ... BindingIdentifier
-                SingleNameRest { ident } => {
-                    // 1. Let lhs be ? ResolveBinding(StringValue of BindingIdentifier, environment).
-                    // 2. Let A be ! ArrayCreate(0).
-                    // 3. Let n be 0.
-                    let a = Array::array_create(0, None, context)
-                        .expect("Array creation with 0 length should never fail");
-
-                    // 4. Repeat,
-                    loop {
-                        let next = iterator.next(context)?;
-                        // a. If iteratorRecord.[[Done]] is false, then
-                        // i. Let next be IteratorStep(iteratorRecord).
-                        // ii. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // iii. ReturnIfAbrupt(next).
-                        // iv. If next is false, set iteratorRecord.[[Done]] to true.
-
-                        // b. If iteratorRecord.[[Done]] is true, then
-                        if next.done {
-                            // i. If environment is undefined, return ? PutValue(lhs, A).
-                            // ii. Return InitializeReferencedBinding(lhs, A).
-                            break result.push((ident.clone(), a.clone().into()));
-                        }
-
-                        // c. Let nextValue be IteratorValue(next).
-                        // d. If nextValue is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // e. ReturnIfAbrupt(nextValue).
-
-                        // f. Perform ! CreateDataPropertyOrThrow(A, ! ToString(𝔽(n)), nextValue).
-                        // g. Set n to n + 1.
-                        Array::add_to_array_object(&a.clone().into(), &[next.value], context)?;
-                    }
-                }
-                // BindingRestElement : ... BindingPattern
-                BindingPatternRest { pattern } => {
-                    // 1. Let A be ! ArrayCreate(0).
-                    // 2. Let n be 0.
-                    let a = Array::array_create(0, None, context)
-                        .expect("Array creation with 0 length should never fail");
-
-                    // 3. Repeat,
-                    loop {
-                        // a. If iteratorRecord.[[Done]] is false, then
-                        // i. Let next be IteratorStep(iteratorRecord).
-                        // ii. If next is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // iii. ReturnIfAbrupt(next).
-                        // iv. If next is false, set iteratorRecord.[[Done]] to true.
-                        let next = iterator.next(context)?;
-
-                        // b. If iteratorRecord.[[Done]] is true, then
-                        if next.done {
-                            // i. Return the result of performing BindingInitialization of BindingPattern with A and environment as the arguments.
-                            break result
-                                .append(&mut pattern.run(Some(a.clone().into()), context)?);
-                        }
-
-                        // c. Let nextValue be IteratorValue(next).
-                        // d. If nextValue is an abrupt completion, set iteratorRecord.[[Done]] to true.
-                        // e. ReturnIfAbrupt(nextValue).
-                        // f. Perform ! CreateDataPropertyOrThrow(A, ! ToString(𝔽(n)), nextValue).
-                        // g. Set n to n + 1.
-                        Array::add_to_array_object(&a.clone().into(), &[next.value], context)?;
-                    }
-                }
-            }
-        }
-
-        // 3. If iteratorRecord.[[Done]] is false, return ? IteratorClose(iteratorRecord, result).
-        // 4. Return result.
-        Ok(result)
+    /// Gets the bindings for the array binding pattern.
+    #[inline]
+    pub(crate) fn bindings(&self) -> &Vec<BindingPatternTypeArray> {
+        &self.bindings
     }
 
     /// Gets the list of identifiers declared by the array binding pattern.
     #[inline]
-    pub(in crate::syntax) fn idents(&self) -> Vec<&str> {
+    pub(crate) fn idents(&self) -> Vec<Sym> {
         let mut idents = Vec::new();
 
         for binding in &self.bindings {
@@ -860,13 +447,13 @@ impl DeclarationPatternArray {
                     ident,
                     default_init: _,
                 } => {
-                    idents.push(ident.as_ref());
+                    idents.push(*ident);
                 }
                 BindingPattern { pattern } | BindingPatternRest { pattern } => {
                     let mut i = pattern.idents();
                     idents.append(&mut i)
                 }
-                SingleNameRest { ident } => idents.push(ident),
+                SingleNameRest { ident } => idents.push(*ident),
             }
         }
 
@@ -898,8 +485,8 @@ pub enum BindingPatternTypeObject {
     /// [spec1]: https://tc39.es/ecma262/#prod-SingleNameBinding
     /// [spec2]: https://tc39.es/ecma262/#prod-BindingProperty
     SingleName {
-        ident: Box<str>,
-        property_name: Box<str>,
+        ident: Sym,
+        property_name: Sym,
         default_init: Option<Node>,
     },
 
@@ -912,10 +499,7 @@ pub enum BindingPatternTypeObject {
     ///  - [ECMAScript reference: 14.3.3 Destructuring Binding Patterns - BindingRestProperty][spec1]
     ///
     /// [spec1]: https://tc39.es/ecma262/#prod-BindingRestProperty
-    RestProperty {
-        ident: Box<str>,
-        excluded_keys: Vec<Box<str>>,
-    },
+    RestProperty { ident: Sym, excluded_keys: Vec<Sym> },
 
     /// BindingPattern represents a `BindingProperty` with a `BindingPattern` as the `BindingElement`.
     ///
@@ -927,48 +511,57 @@ pub enum BindingPatternTypeObject {
     ///
     /// [spec1]: https://tc39.es/ecma262/#prod-BindingProperty
     BindingPattern {
-        ident: Box<str>,
+        ident: Sym,
         pattern: DeclarationPattern,
         default_init: Option<Node>,
     },
 }
 
-impl fmt::Display for BindingPatternTypeObject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self {
-            BindingPatternTypeObject::Empty => {}
+impl ToInternedString for BindingPatternTypeObject {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        match self {
+            BindingPatternTypeObject::Empty => String::new(),
             BindingPatternTypeObject::SingleName {
                 ident,
                 property_name,
                 default_init,
             } => {
-                if ident == property_name {
-                    write!(f, " {}", ident)?;
+                let mut buf = if ident == property_name {
+                    format!(" {}", interner.resolve_expect(*ident))
                 } else {
-                    write!(f, " {} : {}", property_name, ident)?;
-                }
+                    format!(
+                        " {} : {}",
+                        interner.resolve_expect(*property_name),
+                        interner.resolve_expect(*ident)
+                    )
+                };
                 if let Some(ref init) = default_init {
-                    write!(f, " = {}", init)?;
+                    buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
                 }
+                buf
             }
             BindingPatternTypeObject::RestProperty {
                 ident: property_name,
                 excluded_keys: _,
             } => {
-                write!(f, " ... {}", property_name)?;
+                format!(" ... {}", interner.resolve_expect(*property_name))
             }
             BindingPatternTypeObject::BindingPattern {
                 ident: property_name,
                 pattern,
                 default_init,
             } => {
-                write!(f, " {} : {}", property_name, pattern)?;
+                let mut buf = format!(
+                    " {} : {}",
+                    interner.resolve_expect(*property_name),
+                    pattern.to_interned_string(interner)
+                );
                 if let Some(ref init) = default_init {
-                    write!(f, " = {}", init)?;
+                    buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
                 }
+                buf
             }
         }
-        Ok(())
     }
 }
 
@@ -1010,7 +603,7 @@ pub enum BindingPatternTypeArray {
     ///
     /// [spec1]: https://tc39.es/ecma262/#prod-SingleNameBinding
     SingleName {
-        ident: Box<str>,
+        ident: Sym,
         default_init: Option<Node>,
     },
 
@@ -1030,7 +623,7 @@ pub enum BindingPatternTypeArray {
     ///  - [ECMAScript reference: 14.3.3 Destructuring Binding Patterns - BindingRestElement][spec1]
     ///
     /// [spec1]: https://tc39.es/ecma262/#prod-BindingRestElement
-    SingleNameRest { ident: Box<str> },
+    SingleNameRest { ident: Sym },
 
     /// SingleNameRest represents a `BindingPattern` in a `BindingRestElement` of an array binding pattern.
     ///
@@ -1041,32 +634,50 @@ pub enum BindingPatternTypeArray {
     BindingPatternRest { pattern: DeclarationPattern },
 }
 
-impl fmt::Display for BindingPatternTypeArray {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self {
-            BindingPatternTypeArray::Empty => {}
-            BindingPatternTypeArray::Elision => {
-                fmt::Display::fmt(" ", f)?;
-            }
+impl ToInternedString for BindingPatternTypeArray {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        match self {
+            BindingPatternTypeArray::Empty => String::new(),
+            BindingPatternTypeArray::Elision => " ".to_owned(),
             BindingPatternTypeArray::SingleName {
                 ident,
                 default_init,
             } => {
-                write!(f, " {}", ident)?;
+                let mut buf = format!(" {}", interner.resolve_expect(*ident));
                 if let Some(ref init) = default_init {
-                    write!(f, " = {}", init)?;
+                    buf.push_str(&format!(" = {}", init.to_interned_string(interner)));
                 }
+                buf
             }
             BindingPatternTypeArray::BindingPattern { pattern } => {
-                write!(f, " {}", pattern)?;
+                format!(" {}", pattern.to_interned_string(interner))
             }
             BindingPatternTypeArray::SingleNameRest { ident } => {
-                write!(f, " ... {}", ident)?;
+                format!(" ... {}", interner.resolve_expect(*ident))
             }
             BindingPatternTypeArray::BindingPatternRest { pattern } => {
-                write!(f, " ... {}", pattern)?;
+                format!(" ... {}", pattern.to_interned_string(interner))
             }
         }
-        Ok(())
+    }
+}
+
+/// Displays the body of a block or statement list.
+///
+/// This includes the curly braces at the start and end. This will not indent the first brace,
+/// but will indent the last brace.
+pub(in crate::syntax::ast::node) fn block_to_string(
+    body: &StatementList,
+    interner: &Interner,
+    indentation: usize,
+) -> String {
+    if body.items().is_empty() {
+        "{}".to_owned()
+    } else {
+        format!(
+            "{{\n{}{}}}",
+            body.to_indented_string(interner, indentation + 1),
+            "    ".repeat(indentation)
+        )
     }
 }

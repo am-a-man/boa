@@ -1,10 +1,8 @@
 use crate::{
-    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
-    Context, JsResult, JsValue,
 };
-use std::fmt;
+use boa_interner::{Interner, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -46,25 +44,19 @@ impl Yield {
     }
 }
 
-impl Executable for Yield {
-    fn run(&self, _context: &mut Context) -> JsResult<JsValue> {
-        // TODO: Implement Generator execution
-        Ok(JsValue::undefined())
-    }
-}
-
 impl From<Yield> for Node {
     fn from(r#yield: Yield) -> Node {
         Node::Yield(r#yield)
     }
 }
 
-impl fmt::Display for Yield {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ToInternedString for Yield {
+    fn to_interned_string(&self, interner: &Interner) -> String {
         let y = if self.delegate { "yield*" } else { "yield" };
-        match self.expr() {
-            Some(ex) => write!(f, "{} {}", y, ex),
-            None => write!(f, "{}", y),
+        if let Some(ex) = self.expr() {
+            format!("{} {}", y, ex.to_interned_string(interner))
+        } else {
+            y.to_owned()
         }
     }
 }

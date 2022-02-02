@@ -1,13 +1,12 @@
 //! Object node.
 
 use crate::{
-    exec::Executable,
     gc::{Finalize, Trace},
-    property::PropertyDescriptor,
-    syntax::ast::node::{join_nodes, MethodDefinitionKind, Node, PropertyDefinition, PropertyName},
-    BoaProfiler, Context, JsResult, JsValue,
+    syntax::ast::node::{
+        declaration::block_to_string, join_nodes, MethodDefinitionKind, Node, PropertyDefinition,
+    },
 };
-use std::fmt;
+use boa_interner::{Interner, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -47,189 +46,57 @@ impl Object {
     }
 
     /// Implements the display formatting with indentation.
-    pub(in crate::syntax::ast::node) fn display(
+    pub(in crate::syntax::ast::node) fn to_indented_string(
         &self,
-        f: &mut fmt::Formatter<'_>,
+        interner: &Interner,
         indent: usize,
-    ) -> fmt::Result {
-        f.write_str("{\n")?;
+    ) -> String {
+        let mut buf = "{\n".to_owned();
         let indentation = "    ".repeat(indent + 1);
         for property in self.properties().iter() {
-            match property {
-                PropertyDefinition::IdentifierReference(key) => {
-                    writeln!(f, "{}{},", indentation, key)?;
+            buf.push_str(&match property {
+                PropertyDefinition::IdentifierReference(ident) => {
+                    format!("{}{},\n", indentation, interner.resolve_expect(*ident))
                 }
                 PropertyDefinition::Property(key, value) => {
-                    write!(f, "{}{}: ", indentation, key,)?;
-                    value.display_no_indent(f, indent + 1)?;
-                    writeln!(f, ",")?;
+                    format!(
+                        "{}{}: {},\n",
+                        indentation,
+                        key.to_interned_string(interner),
+                        value.to_no_indent_string(interner, indent + 1)
+                    )
                 }
                 PropertyDefinition::SpreadObject(key) => {
-                    writeln!(f, "{}...{},", indentation, key)?;
+                    format!("{}...{},\n", indentation, key.to_interned_string(interner))
                 }
                 PropertyDefinition::MethodDefinition(kind, key, node) => {
-                    write!(f, "{}", indentation)?;
-                    match &kind {
-                        MethodDefinitionKind::Get => write!(f, "get ")?,
-                        MethodDefinitionKind::Set => write!(f, "set ")?,
-                        MethodDefinitionKind::Ordinary
-                        | MethodDefinitionKind::Generator
-                        | MethodDefinitionKind::Async
-                        | MethodDefinitionKind::AsyncGenerator => (),
-                    }
-                    write!(f, "{}(", key)?;
-                    join_nodes(f, node.parameters())?;
-                    write!(f, ") ")?;
-                    node.display_block(f, indent + 1)?;
-                    writeln!(f, ",")?;
+                    format!(
+                        "{}{}{}({}) {},\n",
+                        indentation,
+                        match &kind {
+                            MethodDefinitionKind::Get => "get ",
+                            MethodDefinitionKind::Set => "set ",
+                            MethodDefinitionKind::Ordinary
+                            | MethodDefinitionKind::Generator
+                            | MethodDefinitionKind::Async
+                            | MethodDefinitionKind::AsyncGenerator => "",
+                        },
+                        key.to_interned_string(interner),
+                        join_nodes(interner, node.parameters()),
+                        block_to_string(node.body(), interner, indent + 1)
+                    )
                 }
-            }
+            });
         }
-        write!(f, "{}}}", "    ".repeat(indent))
+        buf.push_str(&format!("{}}}", "    ".repeat(indent)));
+
+        buf
     }
 }
 
-impl Executable for Object {
-    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
-        let _timer = BoaProfiler::global().start_event("object", "exec");
-        let obj = context.construct_object();
-
-        // TODO: Implement the rest of the property types.
-        for property in self.properties().iter() {
-            match property {
-                PropertyDefinition::Property(name, value) => {
-                    let name = match name {
-                        PropertyName::Literal(name) => name.clone().into(),
-                        PropertyName::Computed(node) => {
-                            node.run(context)?.to_property_key(context)?
-                        }
-                    };
-                    obj.__define_own_property__(
-                        name,
-                        PropertyDescriptor::builder()
-                            .value(value.run(context)?)
-                            .writable(true)
-                            .enumerable(true)
-                            .configurable(true)
-                            .build(),
-                        context,
-                    )?;
-                }
-                PropertyDefinition::MethodDefinition(kind, name, func) => {
-                    let name = match name {
-                        PropertyName::Literal(name) => name.clone().into(),
-                        PropertyName::Computed(node) => {
-                            node.run(context)?.to_property_key(context)?
-                        }
-                    };
-                    match kind {
-                        MethodDefinitionKind::Ordinary => {
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .value(func.run(context)?)
-                                    .writable(true)
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                        MethodDefinitionKind::Get => {
-                            let set = obj
-                                .__get_own_property__(&name, context)?
-                                .as_ref()
-                                .and_then(|a| a.set())
-                                .cloned();
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .maybe_get(func.run(context)?.as_object().cloned())
-                                    .maybe_set(set)
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                        MethodDefinitionKind::Set => {
-                            let get = obj
-                                .__get_own_property__(&name, context)?
-                                .as_ref()
-                                .and_then(|a| a.get())
-                                .cloned();
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .maybe_get(get)
-                                    .maybe_set(func.run(context)?.as_object().cloned())
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                        &MethodDefinitionKind::Generator => {
-                            // TODO: Implement generator method definition execution.
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .value(JsValue::undefined())
-                                    .writable(true)
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                        &MethodDefinitionKind::AsyncGenerator => {
-                            // TODO: Implement async generator method definition execution.
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .value(JsValue::undefined())
-                                    .writable(true)
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                        &MethodDefinitionKind::Async => {
-                            obj.__define_own_property__(
-                                name,
-                                PropertyDescriptor::builder()
-                                    .value(JsValue::undefined())
-                                    .writable(true)
-                                    .enumerable(true)
-                                    .configurable(true)
-                                    .build(),
-                                context,
-                            )?;
-                        }
-                    }
-                }
-                // [spec]: https://tc39.es/ecma262/#sec-runtime-semantics-propertydefinitionevaluation
-                PropertyDefinition::SpreadObject(node) => {
-                    let val = node.run(context)?;
-
-                    if val.is_null_or_undefined() {
-                        continue;
-                    }
-
-                    obj.copy_data_properties::<String>(&val, vec![], context)?;
-                }
-                _ => {} // unimplemented!("{:?} type of property", i),
-            }
-        }
-
-        Ok(obj.into())
-    }
-}
-
-impl fmt::Display for Object {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, 0)
+impl ToInternedString for Object {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        self.to_indented_string(interner, 0)
     }
 }
 

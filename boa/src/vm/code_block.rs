@@ -1,27 +1,37 @@
+//! CodeBlock
+//!
+//! This module is for the CodeBlock which implements a function representation in the VM
+
 use crate::{
     builtins::function::{
-        Captures, ClosureFunctionSignature, Function, NativeFunctionSignature, ThisMode,
+        arguments::Arguments, Captures, ClosureFunctionSignature, Function,
+        NativeFunctionSignature, ThisMode,
     },
     context::StandardObjects,
     environment::{
         function_environment_record::{BindingStatus, FunctionEnvironmentRecord},
         lexical_environment::Environment,
     },
-    gc::{Finalize, Trace},
+    gc::{Finalize, Gc, Trace},
     object::{internal_methods::get_prototype_from_constructor, JsObject, ObjectData},
     property::PropertyDescriptor,
     syntax::ast::node::FormalParameter,
-    vm::Opcode,
-    Context, JsResult, JsString, JsValue,
+    vm::{call_frame::FinallyReturn, CallFrame, Opcode},
+    Context, JsResult, JsValue,
 };
-use gc::Gc;
+use boa_interner::{Interner, Sym, ToInternedString};
+use std::{convert::TryInto, mem::size_of};
 
-use std::{convert::TryInto, fmt::Write, mem::size_of};
-
-use super::CallFrame;
-
-/// This represents wether a value can be read from [`CodeBlock`] code.
-pub unsafe trait Readable {}
+/// This represents whether a value can be read from [`CodeBlock`] code.
+///
+/// # Safety
+///
+/// This trait is safe to implement as long as the type doesn't implement `Drop`.
+/// At some point, if [negative impls][negative_impls] are stabilized, we might be able to remove
+/// the unsafe bound.
+///
+/// [negative_impls]: https://doc.rust-lang.org/beta/unstable-book/language-features/negative-impls.html
+pub(crate) unsafe trait Readable {}
 
 unsafe impl Readable for u8 {}
 unsafe impl Readable for i8 {}
@@ -34,12 +44,16 @@ unsafe impl Readable for i64 {}
 unsafe impl Readable for f32 {}
 unsafe impl Readable for f64 {}
 
-#[derive(Debug, Trace, Finalize)]
+/// The internal representation of a JavaScript function.
+///
+/// A CodeBlock is generated for each function compiled by the [ByteCompiler](crate::bytecompiler::ByteCompiler).
+/// It stores the bytecode and the other attributes of the function.
+#[derive(Clone, Debug, Trace, Finalize)]
 pub struct CodeBlock {
     /// Name of this function
-    pub(crate) name: JsString,
+    pub(crate) name: Sym,
 
-    // The length of this function.
+    /// The number of arguments expected.
     pub(crate) length: u32,
 
     /// Is this function in strict mode.
@@ -51,6 +65,7 @@ pub struct CodeBlock {
     /// [[ThisMode]]
     pub(crate) this_mode: ThisMode,
 
+    /// Parameters passed to this function.
     pub(crate) params: Box<[FormalParameter]>,
 
     /// Bytecode
@@ -60,14 +75,18 @@ pub struct CodeBlock {
     pub(crate) literals: Vec<JsValue>,
 
     /// Variables names
-    pub(crate) variables: Vec<JsString>,
+    pub(crate) variables: Vec<Sym>,
 
-    // Functions inside this function
+    /// Functions inside this function
     pub(crate) functions: Vec<Gc<CodeBlock>>,
+
+    /// Indicates if the codeblock contains a lexical name `arguments`
+    pub(crate) lexical_name_argument: bool,
 }
 
 impl CodeBlock {
-    pub fn new(name: JsString, length: u32, strict: bool, constructor: bool) -> Self {
+    /// Constructs a new `CodeBlock`.
+    pub fn new(name: Sym, length: u32, strict: bool, constructor: bool) -> Self {
         Self {
             code: Vec::new(),
             literals: Vec::new(),
@@ -79,6 +98,7 @@ impl CodeBlock {
             constructor,
             this_mode: ThisMode::Global,
             params: Vec::new().into_boxed_slice(),
+            lexical_name_argument: false,
         }
     }
 
@@ -87,15 +107,21 @@ impl CodeBlock {
     /// # Safety
     ///
     /// Does not check if read happens out-of-bounds.
-    pub unsafe fn read_unchecked<T: Readable>(&self, offset: usize) -> T {
-        // This has to be an unaligned read because we can't gurantee that
+    pub(crate) unsafe fn read_unchecked<T>(&self, offset: usize) -> T
+    where
+        T: Readable,
+    {
+        // This has to be an unaligned read because we can't guarantee that
         // the types are aligned.
         self.code.as_ptr().add(offset).cast::<T>().read_unaligned()
     }
 
     /// Read type T from code.
     #[track_caller]
-    pub fn read<T: Readable>(&self, offset: usize) -> T {
+    pub(crate) fn read<T>(&self, offset: usize) -> T
+    where
+        T: Readable,
+    {
         assert!(offset + size_of::<T>() - 1 < self.code.len());
 
         // Safety: We checked that it is not an out-of-bounds read,
@@ -103,6 +129,10 @@ impl CodeBlock {
         unsafe { self.read_unchecked(offset) }
     }
 
+    /// Get the operands after the `Opcode` pointed to by `pc` as a `String`.
+    /// Modifies the `pc` to point to the next instruction.
+    ///
+    /// Returns an empty `String` if no operands are present.
     pub(crate) fn instruction_operands(&self, pc: &mut usize) -> String {
         let opcode: Opcode = self.code[*pc].try_into().unwrap();
         *pc += size_of::<Opcode>();
@@ -128,44 +158,63 @@ impl CodeBlock {
                 ryu_js::Buffer::new().format(operand).to_string()
             }
             Opcode::PushLiteral
-            | Opcode::PushNewArray
             | Opcode::Jump
             | Opcode::JumpIfFalse
-            | Opcode::JumpIfTrue
+            | Opcode::JumpIfNotUndefined
+            | Opcode::CatchStart
+            | Opcode::FinallySetJump
             | Opcode::Case
             | Opcode::Default
             | Opcode::LogicalAnd
             | Opcode::LogicalOr
             | Opcode::Coalesce
-            | Opcode::Call => {
+            | Opcode::Call
+            | Opcode::CallWithRest
+            | Opcode::New
+            | Opcode::NewWithRest
+            | Opcode::ForInLoopInitIterator
+            | Opcode::ForInLoopNext => {
                 let result = self.read::<u32>(*pc).to_string();
                 *pc += size_of::<u32>();
                 result
+            }
+            Opcode::TryStart => {
+                let operand1 = self.read::<u32>(*pc);
+                *pc += size_of::<u32>();
+                let operand2 = self.read::<u32>(*pc);
+                *pc += size_of::<u32>();
+                format!("{}, {}", operand1, operand2)
             }
             Opcode::GetFunction => {
                 let operand = self.read::<u32>(*pc);
                 *pc += size_of::<u32>();
                 format!(
-                    "{:04}: '{}' (length: {})",
+                    "{:04}: '{:?}' (length: {})",
                     operand,
                     self.functions[operand as usize].name,
                     self.functions[operand as usize].length
                 )
             }
-            Opcode::DefVar
+            Opcode::DefInitArg
+            | Opcode::DefVar
+            | Opcode::DefInitVar
             | Opcode::DefLet
-            | Opcode::DefConst
-            | Opcode::InitLexical
+            | Opcode::DefInitLet
+            | Opcode::DefInitConst
             | Opcode::GetName
+            | Opcode::GetNameOrUndefined
             | Opcode::SetName
             | Opcode::GetPropertyByName
             | Opcode::SetPropertyByName
+            | Opcode::DefineOwnPropertyByName
             | Opcode::SetPropertyGetterByName
             | Opcode::SetPropertySetterByName
-            | Opcode::DeletePropertyByName => {
+            | Opcode::DeletePropertyByName
+            | Opcode::ConcatToString
+            | Opcode::CopyDataProperties => {
                 let operand = self.read::<u32>(*pc);
                 *pc += size_of::<u32>();
-                format!("{:04}: '{}'", operand, self.variables[operand as usize])
+                format!("{:04}: '{:?}'", operand, self.variables[operand as usize])
             }
             Opcode::Pop
             | Opcode::Dup
@@ -212,88 +261,120 @@ impl CodeBlock {
             | Opcode::Dec
             | Opcode::GetPropertyByValue
             | Opcode::SetPropertyByValue
+            | Opcode::DefineOwnPropertyByValue
             | Opcode::SetPropertyGetterByValue
             | Opcode::SetPropertySetterByValue
             | Opcode::DeletePropertyByValue
             | Opcode::ToBoolean
             | Opcode::Throw
+            | Opcode::TryEnd
+            | Opcode::CatchEnd
+            | Opcode::CatchEnd2
+            | Opcode::FinallyStart
+            | Opcode::FinallyEnd
             | Opcode::This
             | Opcode::Return
+            | Opcode::PushDeclarativeEnvironment
+            | Opcode::PushFunctionEnvironment
+            | Opcode::PopEnvironment
+            | Opcode::InitIterator
+            | Opcode::IteratorNext
+            | Opcode::IteratorNextFull
+            | Opcode::IteratorClose
+            | Opcode::IteratorToArray
+            | Opcode::RequireObjectCoercible
+            | Opcode::ValueNotNullOrUndefined
+            | Opcode::RestParameterInit
+            | Opcode::RestParameterPop
+            | Opcode::PushValueToArray
+            | Opcode::PushIteratorToArray
+            | Opcode::PushNewArray
+            | Opcode::PopOnReturnAdd
+            | Opcode::PopOnReturnSub
             | Opcode::Nop => String::new(),
         }
     }
 }
 
-impl std::fmt::Display for CodeBlock {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "----------------- name '{}' (length: {}) ------------------",
-            self.name, self.length
-        )?;
+impl ToInternedString for CodeBlock {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        let name = interner.resolve_expect(self.name);
+        let mut f = if self.name == Sym::MAIN {
+            String::new()
+        } else {
+            "\n".to_owned()
+        };
 
-        writeln!(f, "    Location  Count   Opcode              Operands")?;
+        f.push_str(&format!(
+            "{:-^width$}\n    Location  Count   Opcode                     Operands\n\n",
+            format!("Compiled Output: '{}'", name),
+            width = 70
+        ));
+
         let mut pc = 0;
         let mut count = 0;
         while pc < self.code.len() {
             let opcode: Opcode = self.code[pc].try_into().unwrap();
-            write!(
-                f,
-                "    {:06}    {:04}    {:<20}",
+            let operands = self.instruction_operands(&mut pc);
+            f.push_str(&format!(
+                "    {:06}    {:04}    {:<27}\n{}",
                 pc,
                 count,
-                opcode.as_str()
-            )?;
-            writeln!(f, "{}", self.instruction_operands(&mut pc))?;
+                opcode.as_str(),
+                operands
+            ));
             count += 1;
         }
 
-        f.write_char('\n')?;
+        f.push_str("\nLiterals:\n");
 
-        f.write_str("Literals:\n")?;
         if !self.literals.is_empty() {
             for (i, value) in self.literals.iter().enumerate() {
-                writeln!(f, "    {:04}: <{}> {}", i, value.type_of(), value.display())?;
+                f.push_str(&format!(
+                    "    {:04}: <{}> {}\n",
+                    i,
+                    value.type_of(),
+                    value.display()
+                ));
             }
         } else {
-            writeln!(f, "    <empty>")?;
+            f.push_str("    <empty>");
         }
 
-        f.write_char('\n')?;
-
-        f.write_str("Names:\n")?;
+        f.push_str("\nNames:\n");
         if !self.variables.is_empty() {
             for (i, value) in self.variables.iter().enumerate() {
-                writeln!(f, "    {:04}: {}", i, value)?;
+                f.push_str(&format!(
+                    "    {:04}: {}\n",
+                    i,
+                    interner.resolve_expect(*value)
+                ));
             }
         } else {
-            writeln!(f, "    <empty>")?;
+            f.push_str("    <empty>");
         }
 
-        f.write_char('\n')?;
-
-        f.write_str("Functions:\n")?;
+        f.push_str("\nFunctions:\n");
         if !self.functions.is_empty() {
             for (i, code) in self.functions.iter().enumerate() {
-                writeln!(
-                    f,
-                    "    {:04}: name: '{}' (length: {})",
-                    i, code.name, code.length
-                )?;
+                f.push_str(&format!(
+                    "    {:04}: name: '{}' (length: {})\n",
+                    i,
+                    interner.resolve_expect(code.name),
+                    code.length
+                ));
             }
         } else {
-            writeln!(f, "    <empty>")?;
+            f.push_str("    <empty>");
         }
 
-        Ok(())
+        f
     }
 }
 
 #[derive(Debug)]
 #[allow(missing_copy_implementations)]
-pub struct JsVmFunction {
-    inner: (),
-}
+pub struct JsVmFunction {}
 
 impl JsVmFunction {
     #[allow(clippy::new_ret_no_self)]
@@ -303,8 +384,8 @@ impl JsVmFunction {
         let prototype = context.construct_object();
 
         let name_property = PropertyDescriptor::builder()
-            .value(code.name.clone())
-            .writable(true)
+            .value(context.interner().resolve_expect(code.name))
+            .writable(false)
             .enumerable(false)
             .configurable(true)
             .build();
@@ -334,9 +415,9 @@ impl JsVmFunction {
 
         let prototype_property = PropertyDescriptor::builder()
             .value(prototype)
-            .writable(false)
+            .writable(true)
             .enumerable(false)
-            .configurable(true)
+            .configurable(false)
             .build();
 
         constructor
@@ -374,7 +455,6 @@ impl JsObject {
         this: &JsValue,
         args: &[JsValue],
         context: &mut Context,
-        exit_on_return: bool,
     ) -> JsResult<JsValue> {
         let this_function_object = self.clone();
         // let mut has_parameter_expressions = false;
@@ -383,14 +463,25 @@ impl JsObject {
             return context.throw_type_error("not a callable function");
         }
 
+        let mut construct = false;
+
         let body = {
             let object = self.borrow();
             let function = object.as_function().unwrap();
 
             match function {
-                Function::Native { function, .. } => FunctionBody::Native {
-                    function: *function,
-                },
+                Function::Native {
+                    function,
+                    constructor,
+                } => {
+                    if *constructor {
+                        construct = true;
+                    }
+
+                    FunctionBody::Native {
+                        function: *function,
+                    }
+                }
                 Function::Closure {
                     function, captures, ..
                 } => FunctionBody::Closure {
@@ -401,11 +492,13 @@ impl JsObject {
                     code: code.clone(),
                     environment: environment.clone(),
                 },
-                Function::Ordinary { .. } => unreachable!(),
             }
         };
 
         match body {
+            FunctionBody::Native { function } if construct => {
+                function(&JsValue::undefined(), args, context)
+            }
             FunctionBody::Native { function } => function(this, args, context),
             FunctionBody::Closure { function, captures } => {
                 (function)(this, args, captures, context)
@@ -416,7 +509,7 @@ impl JsObject {
                 // Create a new Function environment whose parent is set to the scope of the function declaration (self.environment)
                 // <https://tc39.es/ecma262/#sec-prepareforordinarycall>
                 let local_env = FunctionEnvironmentRecord::new(
-                    this_function_object,
+                    this_function_object.clone(),
                     if !lexical_this_mode {
                         Some(this.clone())
                     } else {
@@ -439,47 +532,99 @@ impl JsObject {
                 // Push the environment first so that it will be used by default parameters
                 context.push_environment(local_env.clone());
 
-                // Add argument bindings to the function environment
-                for (i, param) in code.params.iter().enumerate() {
-                    // Rest Parameters
-                    if param.is_rest_param() {
-                        todo!("Rest parameter");
-                    }
+                let mut arguments_in_parameter_names = false;
+                let mut is_simple_parameter_list = true;
+                let mut has_parameter_expressions = false;
 
-                    let value = match args.get(i).cloned() {
-                        None => JsValue::undefined(),
-                        Some(value) => value,
-                    };
-
-                    Function::add_arguments_to_environment(param, value, &local_env, context);
+                let arguments = Sym::ARGUMENTS;
+                for param in code.params.iter() {
+                    has_parameter_expressions = has_parameter_expressions || param.init().is_some();
+                    arguments_in_parameter_names =
+                        arguments_in_parameter_names || param.names().contains(&arguments);
+                    is_simple_parameter_list = is_simple_parameter_list
+                        && !param.is_rest_param()
+                        && param.is_identifier()
+                        && param.init().is_none()
                 }
+
+                // An arguments object is added when all of the following conditions are met
+                // - If not in an arrow function (10.2.11.16)
+                // - If the parameter list does not contain `arguments` (10.2.11.17)
+                // - If there are default parameters or if lexical names and function names do not contain `arguments` (10.2.11.18)
+                //
+                // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
+                if !lexical_this_mode
+                    && !arguments_in_parameter_names
+                    && (has_parameter_expressions || !code.lexical_name_argument)
+                {
+                    // Add arguments object
+                    let arguments_obj =
+                        if context.strict() || code.strict || !is_simple_parameter_list {
+                            Arguments::create_unmapped_arguments_object(args, context)
+                        } else {
+                            Arguments::create_mapped_arguments_object(
+                                &this_function_object,
+                                &code.params,
+                                args,
+                                &local_env,
+                                context,
+                            )
+                        };
+                    local_env.create_mutable_binding(arguments, false, true, context)?;
+                    local_env.initialize_binding(arguments, arguments_obj.into(), context)?;
+                }
+
+                let arg_count = args.len();
+
+                // Push function arguments to the stack.
+                let args = if code.params.len() > args.len() {
+                    let mut v = args.to_vec();
+                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v
+                } else {
+                    args.to_vec()
+                };
+
+                for arg in args.iter().rev() {
+                    context.vm.push(arg)
+                }
+
+                let param_count = code.params.len();
+
+                let this = if this.is_null_or_undefined() {
+                    context
+                        .get_global_this_binding()
+                        .expect("global env must have this binding")
+                } else {
+                    this.to_object(context)
+                        .expect("conversion to object cannot fail here")
+                        .into()
+                };
 
                 context.vm.push_frame(CallFrame {
                     prev: None,
                     code,
-                    this: this.clone(),
+                    this,
                     pc: 0,
-                    fp: context.vm.stack.len(),
-                    exit_on_return,
-                    environment: local_env,
+                    catch: Vec::new(),
+                    finally_return: FinallyReturn::None,
+                    finally_jump: Vec::new(),
+                    pop_on_return: 0,
+                    pop_env_on_return: 0,
+                    param_count,
+                    arg_count,
                 });
 
                 let result = context.run();
 
                 context.pop_environment();
+                if has_parameter_expressions {
+                    context.pop_environment();
+                }
 
                 result
             }
         }
-    }
-
-    pub fn call(
-        &self,
-        this: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
-        self.call_internal(this, args, context, true)
     }
 
     pub(crate) fn construct_internal(
@@ -487,7 +632,6 @@ impl JsObject {
         args: &[JsValue],
         this_target: &JsValue,
         context: &mut Context,
-        exit_on_return: bool,
     ) -> JsResult<JsValue> {
         let this_function_object = self.clone();
         // let mut has_parameter_expressions = false;
@@ -514,7 +658,6 @@ impl JsObject {
                     code: code.clone(),
                     environment: environment.clone(),
                 },
-                Function::Ordinary { .. } => unreachable!(),
             }
         };
 
@@ -541,7 +684,7 @@ impl JsObject {
                 // Create a new Function environment whose parent is set to the scope of the function declaration (self.environment)
                 // <https://tc39.es/ecma262/#sec-prepareforordinarycall>
                 let local_env = FunctionEnvironmentRecord::new(
-                    this_function_object,
+                    this_function_object.clone(),
                     Some(this.clone()),
                     Some(environment),
                     // Arrow functions do not have a this binding https://tc39.es/ecma262/#sec-function-environment-records
@@ -560,46 +703,103 @@ impl JsObject {
                 // Push the environment first so that it will be used by default parameters
                 context.push_environment(local_env.clone());
 
-                // Add argument bindings to the function environment
-                for (i, param) in code.params.iter().enumerate() {
-                    // Rest Parameters
-                    if param.is_rest_param() {
-                        todo!("Rest parameter");
-                    }
+                let mut arguments_in_parameter_names = false;
+                let mut is_simple_parameter_list = true;
+                let mut has_parameter_expressions = false;
 
-                    let value = match args.get(i).cloned() {
-                        None => JsValue::undefined(),
-                        Some(value) => value,
-                    };
-
-                    Function::add_arguments_to_environment(param, value, &local_env, context);
+                for param in code.params.iter() {
+                    has_parameter_expressions = has_parameter_expressions || param.init().is_some();
+                    arguments_in_parameter_names =
+                        arguments_in_parameter_names || param.names().contains(&Sym::ARGUMENTS);
+                    is_simple_parameter_list = is_simple_parameter_list
+                        && !param.is_rest_param()
+                        && param.is_identifier()
+                        && param.init().is_none()
                 }
+
+                // An arguments object is added when all of the following conditions are met
+                // - If not in an arrow function (10.2.11.16)
+                // - If the parameter list does not contain `arguments` (10.2.11.17)
+                // - If there are default parameters or if lexical names and function names do not contain `arguments` (10.2.11.18)
+                //
+                // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
+                if !lexical_this_mode
+                    && !arguments_in_parameter_names
+                    && (has_parameter_expressions || !code.lexical_name_argument)
+                {
+                    // Add arguments object
+                    let arguments_obj =
+                        if context.strict() || code.strict || !is_simple_parameter_list {
+                            Arguments::create_unmapped_arguments_object(args, context)
+                        } else {
+                            Arguments::create_mapped_arguments_object(
+                                &this_function_object,
+                                &code.params,
+                                args,
+                                &local_env,
+                                context,
+                            )
+                        };
+                    local_env.create_mutable_binding(Sym::ARGUMENTS, false, true, context)?;
+                    local_env.initialize_binding(Sym::ARGUMENTS, arguments_obj.into(), context)?;
+                }
+
+                let arg_count = args.len();
+
+                // Push function arguments to the stack.
+                let args = if code.params.len() > args.len() {
+                    let mut v = args.to_vec();
+                    v.extend(vec![JsValue::Undefined; code.params.len() - args.len()]);
+                    v
+                } else {
+                    args.to_vec()
+                };
+
+                for arg in args.iter().rev() {
+                    context.vm.push(arg)
+                }
+
+                let param_count = code.params.len();
+
+                let this = if this.is_null_or_undefined() {
+                    context
+                        .get_global_this_binding()
+                        .expect("global env must have this binding")
+                } else {
+                    this.to_object(context)
+                        .expect("conversion to object cannot fail here")
+                        .into()
+                };
 
                 context.vm.push_frame(CallFrame {
                     prev: None,
                     code,
                     this,
                     pc: 0,
-                    fp: context.vm.stack.len(),
-                    exit_on_return,
-                    environment: local_env,
+                    catch: Vec::new(),
+                    finally_return: FinallyReturn::None,
+                    finally_jump: Vec::new(),
+                    pop_on_return: 0,
+                    pop_env_on_return: 0,
+                    param_count,
+                    arg_count,
                 });
 
-                let _result = context.run();
+                let result = context.run()?;
+
+                let this = context.get_this_binding();
 
                 context.pop_environment();
+                if has_parameter_expressions {
+                    context.pop_environment();
+                }
 
-                context.get_this_binding()
+                if result.is_object() {
+                    Ok(result)
+                } else {
+                    this
+                }
             }
         }
-    }
-
-    pub fn construct(
-        &self,
-        args: &[JsValue],
-        this_target: &JsValue,
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
-        self.construct_internal(args, this_target, context, true)
     }
 }
