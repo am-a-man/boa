@@ -1,6 +1,5 @@
 use boa::{
     builtins::JsArgs,
-    exec::Executable,
     object::{JsObject, ObjectInitializer},
     property::Attribute,
     Context, JsResult, JsValue,
@@ -30,7 +29,7 @@ pub(super) fn init(context: &mut Context) -> JsObject {
 fn create_realm(_this: &JsValue, _: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
     // eprintln!("called $262.createRealm()");
 
-    let mut context = Context::new();
+    let mut context = Context::default();
 
     // add the $262 object.
     let js_262 = init(&mut context);
@@ -67,7 +66,7 @@ fn detach_array_buffer(
 
     // 3. If SameValue(arrayBuffer.[[ArrayBufferDetachKey]], key) is false, throw a TypeError exception.
     if !JsValue::same_value(&array_buffer.array_buffer_detach_key, key) {
-        return Err(context.construct_type_error("Cannot detach array buffer with different key"));
+        return context.throw_type_error("Cannot detach array buffer with different key");
     }
 
     // 4. Set arrayBuffer.[[ArrayBufferData]] to null.
@@ -84,13 +83,13 @@ fn detach_array_buffer(
 ///
 /// Accepts a string value as its first argument and executes it as an ECMAScript script.
 fn eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    // eprintln!("called $262.evalScript()");
-
     if let Some(source_text) = args.get(0).and_then(|val| val.as_string()) {
-        match boa::parse(source_text.as_str(), false) {
+        match context.parse(source_text.as_str()) {
             // TODO: check strict
             Err(e) => context.throw_type_error(format!("Uncaught Syntax Error: {}", e)),
-            Ok(script) => script.run(context),
+            // Calling eval here parses the code a second time.
+            // TODO: We can fix this after we have have defined the public api for the vm executer.
+            Ok(_) => context.eval(source_text.as_str()),
         }
     } else {
         Ok(JsValue::undefined())

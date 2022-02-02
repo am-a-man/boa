@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests;
 
+use boa_interner::Sym;
+
 use crate::{
     syntax::{
         ast::{node::AsyncFunctionExpr, Keyword, Punctuator},
@@ -11,7 +13,7 @@ use crate::{
             AllowYield, Cursor, ParseError, TokenParser,
         },
     },
-    BoaProfiler,
+    BoaProfiler, Interner,
 };
 
 use std::io::Read;
@@ -47,17 +49,21 @@ where
 {
     type Output = AsyncFunctionExpr;
 
-    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
+    fn parse(
+        self,
+        cursor: &mut Cursor<R>,
+        interner: &mut Interner,
+    ) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("AsyncFunctionExpression", "Parsing");
-        cursor.peek_expect_no_lineterminator(0, "async function expression")?;
-        cursor.expect(Keyword::Function, "async function expression")?;
+        cursor.peek_expect_no_lineterminator(0, "async function expression", interner)?;
+        cursor.expect(Keyword::Function, "async function expression", interner)?;
 
-        let tok = cursor.peek(0)?;
+        let tok = cursor.peek(0, interner)?;
 
         let name = if let Some(token) = tok {
             match token.kind() {
                 TokenKind::Punctuator(Punctuator::OpenParen) => None,
-                _ => Some(BindingIdentifier::new(self.allow_yield, true).parse(cursor)?),
+                _ => Some(BindingIdentifier::new(self.allow_yield, true).parse(cursor, interner)?),
             }
         } else {
             return Err(ParseError::AbruptEnd);
@@ -65,11 +71,11 @@ where
 
         // Early Error: If BindingIdentifier is present and the source code matching BindingIdentifier is strict mode code,
         // it is a Syntax Error if the StringValue of BindingIdentifier is "eval" or "arguments".
-        if let Some(name) = &name {
-            if cursor.strict_mode() && ["eval", "arguments"].contains(&name.as_ref()) {
+        if let Some(name) = name {
+            if cursor.strict_mode() && [Sym::EVAL, Sym::ARGUMENTS].contains(&name) {
                 return Err(ParseError::lex(LexError::Syntax(
                     "Unexpected eval or arguments in strict mode".into(),
-                    match cursor.peek(0)? {
+                    match cursor.peek(0, interner)? {
                         Some(token) => token.span().end(),
                         None => Position::new(1, 1),
                     },
@@ -78,18 +84,26 @@ where
         }
 
         let params_start_position = cursor
-            .expect(Punctuator::OpenParen, "async function expression")?
+            .expect(Punctuator::OpenParen, "async function expression", interner)?
             .span()
             .end();
 
-        let params = FormalParameters::new(false, true).parse(cursor)?;
+        let params = FormalParameters::new(false, true).parse(cursor, interner)?;
 
-        cursor.expect(Punctuator::CloseParen, "async function expression")?;
-        cursor.expect(Punctuator::OpenBlock, "async function expression")?;
+        cursor.expect(
+            Punctuator::CloseParen,
+            "async function expression",
+            interner,
+        )?;
+        cursor.expect(Punctuator::OpenBlock, "async function expression", interner)?;
 
-        let body = FunctionBody::new(false, true).parse(cursor)?;
+        let body = FunctionBody::new(false, true).parse(cursor, interner)?;
 
-        cursor.expect(Punctuator::CloseBlock, "async function expression")?;
+        cursor.expect(
+            Punctuator::CloseBlock,
+            "async function expression",
+            interner,
+        )?;
 
         // Early Error: If the source code matching FormalParameters is strict mode code,
         // the Early Error rules for UniqueFormalParameters : FormalParameters are applied.
@@ -113,13 +127,24 @@ where
         // also occurs in the LexicallyDeclaredNames of FunctionBody.
         // https://tc39.es/ecma262/#sec-function-definitions-static-semantics-early-errors
         {
-            let lexically_declared_names = body.lexically_declared_names();
+            let lexically_declared_names = body.lexically_declared_names(interner);
             for param in params.parameters.as_ref() {
                 for param_name in param.names() {
+<<<<<<< HEAD
                     if lexically_declared_names.contains(param_name) {
                         return Err(ParseError::lex(LexError::Syntax(
                             format!("Redeclaration of formal parameter `{}`", param_name).into(),
                             match cursor.peek(0)? {
+=======
+                    if lexically_declared_names.contains(&param_name) {
+                        return Err(ParseError::lex(LexError::Syntax(
+                            format!(
+                                "Redeclaration of formal parameter `{}`",
+                                interner.resolve_expect(param_name)
+                            )
+                            .into(),
+                            match cursor.peek(0, interner)? {
+>>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                                 Some(token) => token.span().end(),
                                 None => Position::new(1, 1),
                             },

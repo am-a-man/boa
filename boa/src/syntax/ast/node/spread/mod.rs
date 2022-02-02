@@ -1,10 +1,8 @@
 use crate::{
-    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
-    Context, JsResult, JsValue,
 };
-use std::fmt;
+use boa_interner::{Interner, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -51,16 +49,9 @@ impl Spread {
     }
 }
 
-impl Executable for Spread {
-    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
-        // TODO: for now we can do nothing but return the value as-is
-        self.val().run(context)
-    }
-}
-
-impl fmt::Display for Spread {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "...{}", self.val())
+impl ToInternedString for Spread {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        format!("...{}", self.val().to_interned_string(interner))
     }
 }
 

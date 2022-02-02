@@ -222,8 +222,8 @@ impl Number {
         let this_str_num = if let Some(precision) = precision {
             // 5. If f < 0 or f > 100, throw a RangeError exception.
             if !(0..=100).contains(&precision) {
-                return Err(context
-                    .construct_range_error("toExponential() argument must be between 0 and 100"));
+                return context
+                    .throw_range_error("toExponential() argument must be between 0 and 100");
             }
             f64_to_exponential_with_precision(this_num, precision as usize)
         } else {
@@ -256,9 +256,8 @@ impl Number {
                 0..=100 => n.to_integer(context)? as usize,
                 // 4, 5. If f < 0 or f > 100, throw a RangeError exception.
                 _ => {
-                    return Err(context.construct_range_error(
-                        "toFixed() digits argument must be between 0 and 100",
-                    ))
+                    return context
+                        .throw_range_error("toFixed() digits argument must be between 0 and 100")
                 }
             },
             // 3. If fractionDigits is undefined, then f is 0.
@@ -1142,7 +1141,7 @@ impl Number {
 /// Helper function that formats a float as a ES6-style exponential number string.
 fn f64_to_exponential(n: f64) -> String {
     match n.abs() {
-        x if x >= 1.0 || x == 0.0 => format!("{:e}", n).replace("e", "e+"),
+        x if x >= 1.0 || x == 0.0 => format!("{:e}", n).replace('e', "e+"),
         _ => format!("{:e}", n),
     }
 }

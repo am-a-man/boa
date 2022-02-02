@@ -202,7 +202,7 @@ pub(crate) fn compare_results(base: &Path, new: &Path, markdown: bool) {
     let new_conformance = (new_passed as f64 / new_total as f64) * 100_f64;
     let conformance_diff = new_conformance - base_conformance;
 
-    let test_diff = compute_result_diff(base, &base_results.results, &new_results.results);
+    let test_diff = compute_result_diff(Path::new(""), &base_results.results, &new_results.results);
 
     if markdown {
         use num_format::{Locale, ToFormattedString};
@@ -218,7 +218,8 @@ pub(crate) fn compare_results(base: &Path, new: &Path, markdown: bool) {
             )
         }
 
-        println!("### Test262 conformance changes:");
+        println!("#### VM implementation");
+
         println!("| Test result | main count | PR count | difference |");
         println!("| :---------: | :----------: | :------: | :--------: |");
         println!(
@@ -252,24 +253,21 @@ pub(crate) fn compare_results(base: &Path, new: &Path, markdown: bool) {
             diff_format(panic_diff),
         );
         println!(
-            "| Conformance | {:.2}% | {:.2}% | {} |",
+            "| Conformance | {:.2}% | {:.2}% | {}{}{:.2}%{} |",
             base_conformance,
             new_conformance,
-            format!(
-                "{}{}{:.2}%{}",
-                if conformance_diff.abs() > f64::EPSILON {
-                    "**"
-                } else {
-                    ""
-                },
-                if conformance_diff > 0_f64 { "+" } else { "" },
-                conformance_diff,
-                if conformance_diff.abs() > f64::EPSILON {
-                    "**"
-                } else {
-                    ""
-                },
-            ),
+            if conformance_diff.abs() > f64::EPSILON {
+                "**"
+            } else {
+                ""
+            },
+            if conformance_diff > 0_f64 { "+" } else { "" },
+            conformance_diff,
+            if conformance_diff.abs() > f64::EPSILON {
+                "**"
+            } else {
+                ""
+            },
         );
 
         if !test_diff.fixed.is_empty() {
@@ -426,9 +424,7 @@ fn compute_result_diff(
         {
             let test_name = format!(
                 "test/{}/{}.js {}(previously {:?})",
-                base.strip_prefix("../gh-pages/test262/refs/heads/main/latest.json")
-                    .expect("error removing prefix")
-                    .display(),
+                base.display(),
                 new_test.name,
                 if base_test.strict {
                     "[strict mode] "

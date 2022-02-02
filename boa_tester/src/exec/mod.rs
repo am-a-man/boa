@@ -6,30 +6,43 @@ use super::{
     Harness, Outcome, Phase, SuiteResult, Test, TestFlags, TestOutcomeResult, TestResult,
     TestSuite, IGNORED,
 };
-use boa::{parse, Context, JsValue};
+use boa::{syntax::Parser, Context, Interner, JsValue};
 use colored::Colorize;
 use rayon::prelude::*;
 use std::panic;
 
 impl TestSuite {
     /// Runs the test suite.
-    pub(crate) fn run(&self, harness: &Harness, verbose: u8) -> SuiteResult {
+    pub(crate) fn run(&self, harness: &Harness, verbose: u8, parallel: bool) -> SuiteResult {
         if verbose != 0 {
             println!("Suite {}:", self.name);
         }
 
-        let suites: Vec<_> = self
-            .suites
-            .par_iter()
-            .map(|suite| suite.run(harness, verbose))
-            .collect();
+        let suites: Vec<_> = if parallel {
+            self.suites
+                .par_iter()
+                .map(|suite| suite.run(harness, verbose, parallel))
+                .collect()
+        } else {
+            self.suites
+                .iter()
+                .map(|suite| suite.run(harness, verbose, parallel))
+                .collect()
+        };
 
-        let tests: Vec<_> = self
-            .tests
-            .par_iter()
-            .map(|test| test.run(harness, verbose))
-            .flatten()
-            .collect();
+        let tests: Vec<_> = if parallel {
+            self.tests
+                .par_iter()
+                .map(|test| test.run(harness, verbose))
+                .flatten()
+                .collect()
+        } else {
+            self.tests
+                .iter()
+                .map(|test| test.run(harness, verbose))
+                .flatten()
+                .collect()
+        };
 
         if verbose != 0 {
             println!();
@@ -102,7 +115,7 @@ impl Test {
     fn run_once(&self, harness: &Harness, strict: bool, verbose: u8) -> TestResult {
         if verbose > 1 {
             println!(
-                "Starting `{}`{}",
+                "`{}`{}: starting",
                 self.name,
                 if strict { " (strict mode)" } else { "" }
             );
@@ -139,9 +152,7 @@ impl Test {
 
                     match self.set_up_env(harness, strict) {
                         Ok(mut context) => {
-                            if strict {
-                                context.set_strict_mode_global();
-                            }
+                            context.set_strict_mode(strict);
                             let res = context.eval(&self.content.as_ref());
 
                             let passed = res.is_ok();
@@ -170,7 +181,8 @@ impl Test {
                         self.name
                     );
 
-                    match parse(&self.content.as_ref(), strict) {
+                    let mut interner = Interner::default();
+                    match Parser::new(self.content.as_bytes(), strict).parse_all(&mut interner) {
                         Ok(n) => (false, format!("{:?}", n)),
                         Err(e) => (true, format!("Uncaught {}", e)),
                     }
@@ -183,14 +195,15 @@ impl Test {
                     phase: Phase::Runtime,
                     ref error_type,
                 } => {
-                    if let Err(e) = parse(&self.content.as_ref(), strict) {
+                    let mut interner = Interner::default();
+                    if let Err(e) =
+                        Parser::new(self.content.as_bytes(), strict).parse_all(&mut interner)
+                    {
                         (false, format!("Uncaught {}", e))
                     } else {
                         match self.set_up_env(harness, strict) {
                             Ok(mut context) => {
-                                if strict {
-                                    context.set_strict_mode_global();
-                                }
+                                context.set_strict_mode(strict);
                                 match context.eval(&self.content.as_ref()) {
                                     Ok(res) => (false, format!("{}", res.display())),
                                     Err(e) => {
@@ -222,7 +235,9 @@ impl Test {
 
             if verbose > 1 {
                 println!(
-                    "Result: {}",
+                    "`{}`{}: {}",
+                    self.name,
+                    if strict { " (strict mode)" } else { "" },
                     if matches!(result, (TestOutcomeResult::Passed, _)) {
                         "Passed".green()
                     } else if matches!(result, (TestOutcomeResult::Failed, _)) {
@@ -245,7 +260,12 @@ impl Test {
             result
         } else {
             if verbose > 1 {
-                println!("Result: {}", "Ignored".yellow());
+                println!(
+                    "`{}`{}: {}",
+                    self.name,
+                    if strict { " (strict mode)" } else { "" },
+                    "Ignored".yellow()
+                );
             } else {
                 print!("{}", ".".yellow());
             }
@@ -253,7 +273,11 @@ impl Test {
         };
 
         if verbose > 2 {
-            println!("Result text:");
+            println!(
+                "`{}`{}: result text",
+                self.name,
+                if strict { " (strict mode)" } else { "" },
+            );
             println!("{}", result_text);
             println!();
         }
@@ -269,7 +293,7 @@ impl Test {
     /// Sets the environment up to run the test.
     fn set_up_env(&self, harness: &Harness, strict: bool) -> Result<Context, String> {
         // Create new Realm
-        let mut context = Context::new();
+        let mut context = Context::default();
 
         // Register the print() function.
         context

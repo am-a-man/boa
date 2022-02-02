@@ -1,11 +1,8 @@
 use crate::{
-    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::{Call, Node},
-    value::JsValue,
-    BoaProfiler, Context, JsResult,
 };
-use std::fmt;
+use boa_interner::{Interner, ToInternedString};
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -44,41 +41,10 @@ impl New {
     pub fn args(&self) -> &[Node] {
         self.call.args()
     }
-}
 
-impl Executable for New {
-    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
-        let _timer = BoaProfiler::global().start_event("New", "exec");
-
-        let func_object = self.expr().run(context)?;
-        let mut v_args = Vec::with_capacity(self.args().len());
-        for arg in self.args() {
-            if let Node::Spread(ref x) = arg {
-                let val = x.run(context)?;
-                let iterator_record = val.get_iterator(context, None, None)?;
-                loop {
-                    let next = iterator_record.next(context)?;
-                    if next.done {
-                        break;
-                    }
-                    let next_value = next.value;
-                    v_args.push(next_value);
-                }
-                break; // after spread we don't accept any new arguments
-            } else {
-                v_args.push(arg.run(context)?);
-            }
-        }
-
-        func_object
-            .as_constructor()
-            .ok_or_else(|| {
-                context.construct_type_error(format!(
-                    "{} is not a constructor",
-                    self.expr().to_string(),
-                ))
-            })
-            .and_then(|cons| cons.construct(&v_args, &cons.clone().into(), context))
+    /// Returns the inner call
+    pub(crate) fn call(&self) -> &Call {
+        &self.call
     }
 }
 
@@ -88,9 +54,9 @@ impl From<Call> for New {
     }
 }
 
-impl fmt::Display for New {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "new {}", self.call)
+impl ToInternedString for New {
+    fn to_interned_string(&self, interner: &Interner) -> String {
+        format!("new {}", self.call.to_interned_string(interner))
     }
 }
 
