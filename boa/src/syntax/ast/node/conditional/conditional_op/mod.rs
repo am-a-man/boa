@@ -69,7 +69,7 @@ impl ToInternedString for ConditionalOp {
 }
 
 impl From<ConditionalOp> for Node {
-    fn from(cond_op: ConditionalOp) -> Self {
+    fn from(cond_op: ConditionalOp) -> Node {
         Self::ConditionalOp(cond_op)
     }
 }

@@ -13,13 +13,13 @@ pub mod string_iterator;
 #[cfg(test)]
 mod tests;
 
-use super::JsArgs;
+use crate::builtins::Symbol;
+use crate::context::StandardObjects;
+use crate::object::internal_methods::get_prototype_from_constructor;
+use crate::object::JsObject;
 use crate::{
-    builtins::{string::string_iterator::StringIterator, Array, BuiltIn, RegExp, Symbol},
-    context::StandardObjects,
-    object::{
-        internal_methods::get_prototype_from_constructor, ConstructorBuilder, JsObject, ObjectData,
-    },
+    builtins::{string::string_iterator::StringIterator, Array, BuiltIn, RegExp},
+    object::{ConstructorBuilder, ObjectData},
     property::{Attribute, PropertyDescriptor},
     symbol::WellKnownSymbols,
     BoaProfiler, Context, JsResult, JsString, JsValue,
@@ -31,7 +31,9 @@ use std::{
 };
 use unicode_normalization::UnicodeNormalization;
 
-pub(crate) fn code_point_at(string: &JsString, position: i32) -> Option<(u32, u8, bool)> {
+use super::JsArgs;
+
+pub(crate) fn code_point_at(string: JsString, position: i32) -> Option<(u32, u8, bool)> {
     let size = string.encode_utf16().count() as i32;
     if position < 0 || position >= size {
         return None;
@@ -39,16 +41,16 @@ pub(crate) fn code_point_at(string: &JsString, position: i32) -> Option<(u32, u8
     let mut encoded = string.encode_utf16();
     let first = encoded.nth(position as usize)?;
     if !is_leading_surrogate(first) && !is_trailing_surrogate(first) {
-        return Some((u32::from(first), 1, false));
+        return Some((first as u32, 1, false));
     }
     if is_trailing_surrogate(first) || position + 1 == size {
-        return Some((u32::from(first), 1, true));
+        return Some((first as u32, 1, true));
     }
     let second = encoded.next()?;
     if !is_trailing_surrogate(second) {
-        return Some((u32::from(first), 1, true));
+        return Some((first as u32, 1, true));
     }
-    let cp = (u32::from(first) - 0xD800) * 0x400 + (u32::from(second) - 0xDC00) + 0x10000;
+    let cp = (first as u32 - 0xD800) * 0x400 + (second as u32 - 0xDC00) + 0x10000;
     Some((cp, 2, false))
 }
 
@@ -383,7 +385,7 @@ impl String {
         // Note that this is an O(N) operation (because UTF-8 is complex) while getting the number of
         // bytes is an O(1) operation.
         if let Some(utf16_val) = primitive_val.encode_utf16().nth(pos as usize) {
-            Ok(JsValue::new(from_u32(u32::from(utf16_val)).unwrap()))
+            Ok(JsValue::new(from_u32(utf16_val as u32).unwrap()))
         } else {
             Ok("".into())
         }
@@ -409,7 +411,7 @@ impl String {
             .cloned()
             .unwrap_or_default()
             .to_integer(context)?;
-        let k = if relative_index < 0_f64 {
+        let k = if relative_index < 0 as f64 {
             len - (-relative_index as usize)
         } else {
             relative_index as usize
@@ -457,7 +459,7 @@ impl String {
             return Ok(JsValue::undefined());
         }
 
-        if let Some((code_point, _, _)) = code_point_at(&primitive_val, pos) {
+        if let Some((code_point, _, _)) = code_point_at(primitive_val, pos) {
             Ok(JsValue::new(code_point))
         } else {
             Ok(JsValue::undefined())
@@ -841,7 +843,7 @@ impl String {
         // 5. Let functionalReplace be IsCallable(replaceValue).
         let functional_replace = replace_value
             .as_object()
-            .map(JsObject::is_callable)
+            .map(|obj| obj.is_callable())
             .unwrap_or_default();
 
         // 6. If functionalReplace is false, then
@@ -881,12 +883,12 @@ impl String {
 
             // c. Let replacement be ! GetSubstitution(searchString, string, position, captures, undefined, replaceValue).
             get_substitution(
-                search_str.as_str(),
-                this_str.as_str(),
+                search_str.to_string(),
+                this_str.to_string(),
                 position,
-                &captures,
-                &JsValue::undefined(),
-                &replace_value.to_string(context)?,
+                captures,
+                JsValue::undefined(),
+                replace_value.to_string(context)?,
                 context,
             )?
         };
@@ -908,11 +910,9 @@ impl String {
 
     /// `22.1.3.18 String.prototype.replaceAll ( searchValue, replaceValue )`
     ///
-    /// The replaceAll() method returns a new string with all matches of a pattern replaced by a
-    /// replacement.
+    /// The replaceAll() method returns a new string with all matches of a pattern replaced by a replacement.
     ///
-    /// The pattern can be a string or a `RegExp`, and the replacement can be a string or a
-    /// function to be called for each match.
+    /// The pattern can be a string or a RegExp, and the replacement can be a string or a function to be called for each match.
     ///
     /// The original string is left unchanged.
     ///
@@ -973,16 +973,15 @@ impl String {
         // 5. Let functionalReplace be IsCallable(replaceValue).
         let functional_replace = replace_value
             .as_object()
-            .map(JsObject::is_callable)
+            .map(|obj| obj.is_callable())
             .unwrap_or_default();
 
         // 6. If functionalReplace is false, then
-        #[allow(clippy::if_not_else)]
         let replace_value_string = if !functional_replace {
             // a. Set replaceValue to ? ToString(replaceValue).
             replace_value.to_string(context)?
         } else {
-            JsString::empty()
+            JsString::new("")
         };
 
         // 7. Let searchLength be the length of searchString.
@@ -1044,12 +1043,12 @@ impl String {
                 // ii. Let captures be a new empty List.
                 // iii. Let replacement be ! GetSubstitution(searchString, string, p, captures, undefined, replaceValue).
                 get_substitution(
-                    search_string.as_str(),
-                    string.as_str(),
+                    search_string.to_string(),
+                    string.to_string(),
                     p,
-                    &[],
-                    &JsValue::undefined(),
-                    &replace_value_string,
+                    Vec::new(),
+                    JsValue::undefined(),
+                    replace_value_string.clone(),
                     context,
                 )
                 .expect("GetSubstitution should never fail here.")
@@ -1222,7 +1221,7 @@ impl String {
     fn string_pad(
         primitive: JsString,
         max_length: i32,
-        fill_string: Option<&JsString>,
+        fill_string: Option<JsString>,
         at_start: bool,
     ) -> JsValue {
         let primitive_length = primitive.len() as i32;
@@ -1231,7 +1230,7 @@ impl String {
             return JsValue::new(primitive);
         }
 
-        let filler = fill_string.map_or(" ", JsString::as_str);
+        let filler = fill_string.as_deref().unwrap_or(" ");
 
         if filler.is_empty() {
             return JsValue::new(primitive);
@@ -1281,12 +1280,7 @@ impl String {
 
         let fill_string = args.get(1).map(|arg| arg.to_string(context)).transpose()?;
 
-        Ok(Self::string_pad(
-            primitive,
-            max_length,
-            fill_string.as_ref(),
-            false,
-        ))
+        Ok(Self::string_pad(primitive, max_length, fill_string, false))
     }
 
     /// `String.prototype.padStart( targetLength [, padString] )`
@@ -1317,12 +1311,7 @@ impl String {
 
         let fill_string = args.get(1).map(|arg| arg.to_string(context)).transpose()?;
 
-        Ok(Self::string_pad(
-            primitive,
-            max_length,
-            fill_string.as_ref(),
-            true,
-        ))
+        Ok(Self::string_pad(primitive, max_length, fill_string, true))
     }
 
     /// String.prototype.trim()
@@ -1869,12 +1858,12 @@ impl String {
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-getsubstitution
 pub(crate) fn get_substitution(
-    matched: &str,
-    str: &str,
+    matched: StdString,
+    str: StdString,
     position: usize,
-    captures: &[JsValue],
-    named_captures: &JsValue,
-    replacement: &JsString,
+    captures: Vec<JsValue>,
+    named_captures: JsValue,
+    replacement: JsString,
     context: &mut Context,
 ) -> JsResult<JsString> {
     // 1. Assert: Type(matched) is String.
@@ -1921,7 +1910,7 @@ pub(crate) fn get_substitution(
                 // $&
                 (Some('&'), _) => {
                     // matched
-                    result.push_str(matched);
+                    result.push_str(&matched);
                 }
                 // $`
                 (Some('`'), _) => {
@@ -1982,7 +1971,7 @@ pub(crate) fn get_substitution(
                     // 1. If namedCaptures is undefined, the replacement text is the String "$<".
                     // 2. Else,
                     if named_captures.is_undefined() {
-                        result.push_str("$<");
+                        result.push_str("$<")
                     } else {
                         // a. Assert: Type(namedCaptures) is Object.
 
@@ -2001,11 +1990,10 @@ pub(crate) fn get_substitution(
                         }
 
                         // c. If none is found, the replacement text is the String "$<".
-                        #[allow(clippy::if_not_else)]
+                        // d. Else,
                         if !found {
                             result.push_str("$<");
                             result.push_str(&group_name);
-                        // d. Else,
                         } else {
                             // i. Let groupName be the enclosed substring.
                             // ii. Let capture be ? Get(namedCaptures, groupName).

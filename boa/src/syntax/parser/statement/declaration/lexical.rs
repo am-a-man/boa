@@ -177,7 +177,7 @@ where
                         ));
                     }
                 } else {
-                    const_decls.push(decl);
+                    const_decls.push(decl)
                 }
             } else {
                 let_decls.push(decl);
@@ -195,9 +195,9 @@ where
                     if tk.kind() == &TokenKind::Punctuator(Punctuator::Comma) =>
                 {
                     // We discard the comma
-                    let _comma = cursor.next(interner)?;
+                    let _ = cursor.next(interner)?;
                 }
-                SemicolonResult::NotFound(_) => {
+                _ => {
                     let next = cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?;
                     return Err(ParseError::expected(
                         [";".to_owned(), "line terminator".to_owned()],

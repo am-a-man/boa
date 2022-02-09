@@ -9,19 +9,16 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
-/// A type wrapping `indexmap::IndexSet`
+/// A newtype wrapping indexmap::IndexSet
 #[derive(Clone)]
-pub struct OrderedSet<V, S = RandomState>
+pub struct OrderedSet<V, S = RandomState>(IndexSet<V, S>)
 where
-    V: Hash + Eq,
-{
-    inner: IndexSet<V, S>,
-}
+    V: Hash + Eq;
 
 impl<V: Eq + Hash + Trace, S: BuildHasher> Finalize for OrderedSet<V, S> {}
 unsafe impl<V: Eq + Hash + Trace, S: BuildHasher> Trace for OrderedSet<V, S> {
     custom_trace!(this, {
-        for v in this.inner.iter() {
+        for v in this.0.iter() {
             mark(v);
         }
     });
@@ -29,7 +26,7 @@ unsafe impl<V: Eq + Hash + Trace, S: BuildHasher> Trace for OrderedSet<V, S> {
 
 impl<V: Hash + Eq + Debug> Debug for OrderedSet<V> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        self.inner.fmt(formatter)
+        self.0.fmt(formatter)
     }
 }
 
@@ -44,29 +41,25 @@ where
     V: Hash + Eq,
 {
     pub fn new() -> Self {
-        Self {
-            inner: IndexSet::new(),
-        }
+        OrderedSet(IndexSet::new())
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            inner: IndexSet::with_capacity(capacity),
-        }
+        OrderedSet(IndexSet::with_capacity(capacity))
     }
 
     /// Return the number of key-value pairs in the map.
     ///
     /// Computes in **O(1)** time.
     pub fn size(&self) -> usize {
-        self.inner.len()
+        self.0.len()
     }
 
     /// Returns true if the map contains no elements.
     ///
     /// Computes in **O(1)** time.
     pub fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+        self.0.len() == 0
     }
 
     /// Insert a value pair in the set.
@@ -78,7 +71,7 @@ where
     ///
     /// Computes in **O(1)** time (amortized average).
     pub fn add(&mut self, value: V) -> bool {
-        self.inner.insert(value)
+        self.0.insert(value)
     }
 
     /// Delete the `value` from the set and return true if successful
@@ -87,7 +80,7 @@ where
     ///
     /// Computes in **O(n)** time (average).
     pub fn delete(&mut self, value: &V) -> bool {
-        self.inner.shift_remove(value)
+        self.0.shift_remove(value)
     }
 
     /// Checks if a given value is present in the set
@@ -96,19 +89,19 @@ where
     ///
     /// Computes in **O(n)** time (average).
     pub fn contains(&self, value: &V) -> bool {
-        self.inner.contains(value)
+        self.0.contains(value)
     }
 
     /// Get a key-value pair by index
     /// Valid indices are 0 <= index < self.len()
     /// Computes in O(1) time.
     pub fn get_index(&self, index: usize) -> Option<&V> {
-        self.inner.get_index(index)
+        self.0.get_index(index)
     }
 
     /// Return an iterator over the values of the set, in their order
     pub fn iter(&self) -> Iter<'_, V> {
-        self.inner.iter()
+        self.0.iter()
     }
 }
 
@@ -120,7 +113,7 @@ where
     type Item = &'a V;
     type IntoIter = Iter<'a, V>;
     fn into_iter(self) -> Self::IntoIter {
-        self.inner.iter()
+        self.0.iter()
     }
 }
 
@@ -132,6 +125,6 @@ where
     type Item = V;
     type IntoIter = IntoIter<V>;
     fn into_iter(self) -> IntoIter<V> {
-        self.inner.into_iter()
+        self.0.into_iter()
     }
 }

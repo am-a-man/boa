@@ -27,7 +27,6 @@ module.exports = {
     new WasmPackPlugin({
       crateDirectory: path.resolve(__dirname, "./boa_wasm/"),
       outDir: path.resolve(__dirname, "./boa_wasm/pkg/"),
-      forceMode: "production",
     }),
     new CopyWebpackPlugin({
       patterns: [

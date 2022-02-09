@@ -33,12 +33,14 @@ impl TestSuite {
         let tests: Vec<_> = if parallel {
             self.tests
                 .par_iter()
-                .flat_map(|test| test.run(harness, verbose))
+                .map(|test| test.run(harness, verbose))
+                .flatten()
                 .collect()
         } else {
             self.tests
                 .iter()
-                .flat_map(|test| test.run(harness, verbose))
+                .map(|test| test.run(harness, verbose))
+                .flatten()
                 .collect()
         };
 
@@ -77,7 +79,7 @@ impl TestSuite {
                 ignored.to_string().yellow(),
                 (total - passed - ignored).to_string().red(),
                 if panic == 0 {"0".normal()} else {panic.to_string().red()},
-                if panic == 0 {""} else {" ⚠"}.red(),
+                if panic != 0 {" ⚠"} else {""}.red(),
                 (passed as f64 / total as f64) * 100.0
             );
         }
@@ -165,7 +167,11 @@ impl Test {
                     }
                 }
                 Outcome::Negative {
-                    phase: Phase::Parse | Phase::Early,
+                    phase: Phase::Parse,
+                    ref error_type,
+                }
+                | Outcome::Negative {
+                    phase: Phase::Early,
                     ref error_type,
                 } => {
                     assert_eq!(
@@ -214,19 +220,18 @@ impl Test {
                 }
             });
 
-            let result = res.map_or_else(
-                |_| {
-                    eprintln!("last panic was on test \"{}\"", self.name);
-                    (TestOutcomeResult::Panic, String::new())
-                },
-                |(res, text)| {
+            let result = res
+                .map(|(res, text)| {
                     if res {
                         (TestOutcomeResult::Passed, text)
                     } else {
                         (TestOutcomeResult::Failed, text)
                     }
-                },
-            );
+                })
+                .unwrap_or_else(|_| {
+                    eprintln!("last panic was on test \"{}\"", self.name);
+                    (TestOutcomeResult::Panic, String::new())
+                });
 
             if verbose > 1 {
                 println!(
@@ -301,7 +306,7 @@ impl Test {
             })?;
 
         // add the $262 object.
-        let _js262 = js262::init(&mut context);
+        let _ = js262::init(&mut context);
 
         if strict {
             context

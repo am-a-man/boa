@@ -2,27 +2,13 @@
 //!
 //! This crate will run the full ECMAScript test suite (Test262) and report compliance of the
 //! `boa` context.
-#![warn(
-    clippy::perf,
-    clippy::single_match_else,
-    clippy::dbg_macro,
-    clippy::doc_markdown,
-    clippy::wildcard_imports,
-    clippy::struct_excessive_bools,
-    clippy::doc_markdown,
-    clippy::semicolon_if_nothing_returned,
-    clippy::pedantic
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg"
 )]
 #![deny(
+    unused_qualifications,
     clippy::all,
-    clippy::cast_lossless,
-    clippy::redundant_closure_for_method_calls,
-    clippy::use_self,
-    clippy::unnested_or_patterns,
-    clippy::trivially_copy_pass_by_ref,
-    clippy::needless_pass_by_value,
-    clippy::match_wildcard_for_single_variants,
-    clippy::map_unwrap_or,
     unused_qualifications,
     unused_import_braces,
     unused_lifetimes,
@@ -39,16 +25,8 @@
     future_incompatible,
     nonstandard_style,
 )]
+#![warn(clippy::perf, clippy::single_match_else, clippy::dbg_macro)]
 #![allow(
-    clippy::module_name_repetitions,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_wrap,
-    clippy::cast_ptr_alignment,
-    clippy::missing_panics_doc,
-    clippy::too_many_lines,
-    clippy::unreadable_literal,
     clippy::missing_inline_in_public_items,
     clippy::cognitive_complexity,
     clippy::must_use_candidate,
@@ -116,9 +94,9 @@ impl Ignored {
 impl Default for Ignored {
     fn default() -> Self {
         Self {
-            tests: FxHashSet::default(),
-            features: FxHashSet::default(),
-            files: FxHashSet::default(),
+            tests: Default::default(),
+            features: Default::default(),
+            files: Default::default(),
             flags: TestFlags::empty(),
         }
     }
@@ -166,15 +144,10 @@ static IGNORED: Lazy<Ignored> = Lazy::new(|| {
                         .trim()
                         .parse::<TestFlag>()
                         .expect("invalid flag found");
-                    ign.flags.insert(flag.into());
+                    ign.flags.insert(flag.into())
                 } else {
                     let mut test = line.trim();
-                    if test
-                        .rsplit('.')
-                        .next()
-                        .map(|ext| ext.eq_ignore_ascii_case("js"))
-                        == Some(true)
-                    {
+                    if test.ends_with(".js") {
                         test = test.strip_suffix(".js").expect("suffix disappeared");
                     }
                     ign.tests.insert(test.to_owned().into_boxed_str());
@@ -182,7 +155,7 @@ static IGNORED: Lazy<Ignored> = Lazy::new(|| {
                 ign
             })
     } else {
-        Ignored::default()
+        Default::default()
     }
 });
 
@@ -423,7 +396,7 @@ impl Test {
     where
         N: Into<Box<str>>,
     {
-        self.name = name.into();
+        self.name = name.into()
     }
 }
 
@@ -501,7 +474,7 @@ where
             }
 
             if !result.intersects(Self::default()) {
-                result |= Self::default();
+                result |= Self::default()
             }
 
             result

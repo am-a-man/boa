@@ -333,7 +333,6 @@ pub(crate) struct InternalObjectMethods {
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinarygetprototypeof
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_get_prototype_of(
     obj: &JsObject,
     _context: &mut Context,
@@ -351,7 +350,6 @@ pub(crate) fn ordinary_get_prototype_of(
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinarysetprototypeof
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_set_prototype_of(
     obj: &JsObject,
     val: JsPrototype,
@@ -394,7 +392,9 @@ pub(crate) fn ordinary_set_prototype_of(
             break;
         }
         // ii. Else, set p to p.[[Prototype]].
-        p = proto.prototype().clone();
+        else {
+            p = proto.prototype().clone();
+        }
     }
 
     // 9. Set O.[[Prototype]] to V.
@@ -411,20 +411,18 @@ pub(crate) fn ordinary_set_prototype_of(
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinaryisextensible
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_is_extensible(obj: &JsObject, _context: &mut Context) -> JsResult<bool> {
     // 1. Return O.[[Extensible]].
     Ok(obj.borrow().extensible)
 }
 
-/// Abstract operation `OrdinaryPreventExtensions`.
+/// Abstract operation `OrdinaryPreventExtensions.
 ///
 /// More information:
 ///  - [ECMAScript reference][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinarypreventextensions
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_prevent_extensions(
     obj: &JsObject,
     _context: &mut Context,
@@ -443,7 +441,6 @@ pub(crate) fn ordinary_prevent_extensions(
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinarygetownproperty
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_get_own_property(
     obj: &JsObject,
     key: &PropertyKey,
@@ -522,8 +519,9 @@ pub(crate) fn ordinary_has_property(
         parent
             // 5. If parent is not null, then
             // a. Return ? parent.[[HasProperty]](P).
+            .map(|obj| obj.__has_property__(key, context))
             // 6. Return false.
-            .map_or(Ok(false), |obj| obj.__has_property__(key, context))
+            .unwrap_or(Ok(false))
     }
 }
 
@@ -654,9 +652,11 @@ pub(crate) fn ordinary_set(
             );
         }
         // e. Else
-        // i. Assert: Receiver does not currently have a property P.
-        // ii. Return ? CreateDataProperty(Receiver, P, V).
-        return receiver.create_data_property(key, value, context);
+        else {
+            // i. Assert: Receiver does not currently have a property P.
+            // ii. Return ? CreateDataProperty(Receiver, P, V).
+            return receiver.create_data_property(key, value, context);
+        }
     }
 
     // 4. Assert: IsAccessorDescriptor(ownDesc) is true.
@@ -715,7 +715,6 @@ pub(crate) fn ordinary_delete(
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-ordinaryownpropertykeys
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn ordinary_own_property_keys(
     obj: &JsObject,
     _context: &mut Context,
@@ -737,7 +736,7 @@ pub(crate) fn ordinary_own_property_keys(
 
     // 2. For each own property key P of O such that P is an array index, in ascending numeric index order, do
     // a. Add P as the last element of keys.
-    keys.extend(ordered_indexes.into_iter().map(Into::into));
+    keys.extend(ordered_indexes.into_iter().map(|idx| idx.into()));
 
     // 3. For each own property key P of O such that Type(P) is String and P is not an array index, in ascending chronological order of property creation, do
     // a. Add P as the last element of keys.
@@ -746,7 +745,7 @@ pub(crate) fn ordinary_own_property_keys(
             .properties
             .string_property_keys()
             .cloned()
-            .map(Into::into),
+            .map(|s| s.into()),
     );
 
     // 4. For each own property key P of O such that Type(P) is Symbol, in ascending chronological order of property creation, do
@@ -756,7 +755,7 @@ pub(crate) fn ordinary_own_property_keys(
             .properties
             .symbol_property_keys()
             .cloned()
-            .map(Into::into),
+            .map(|sym| sym.into()),
     );
 
     // 5. Return keys.
@@ -813,7 +812,7 @@ pub(crate) fn validate_and_apply_property_descriptor(
 
         if let Some((obj, key)) = obj_and_key {
             obj.borrow_mut().properties.insert(
-                &key,
+                key,
                 // c. If IsGenericDescriptor(Desc) is true or IsDataDescriptor(Desc) is true, then
                 if desc.is_generic_descriptor() || desc.is_data_descriptor() {
                     // i. If O is not undefined, create an own data property named P of
@@ -929,8 +928,8 @@ pub(crate) fn validate_and_apply_property_descriptor(
     if let Some((obj, key)) = obj_and_key {
         // a. For each field of Desc that is present, set the corresponding attribute of the
         // property named P of object O to the value of the field.
-        current.fill_with(&desc);
-        obj.borrow_mut().properties.insert(&key, current);
+        current.fill_with(desc);
+        obj.borrow_mut().properties.insert(key, current);
     }
 
     // 10. Return true.
