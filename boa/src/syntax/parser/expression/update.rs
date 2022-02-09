@@ -5,20 +5,17 @@
 //!
 //! [spec]: https://tc39.es/ecma262/#sec-update-expressions
 
-use boa_interner::Sym;
-
 use super::left_hand_side::LeftHandSideExpression;
 use crate::{
     profiler::BoaProfiler,
     syntax::{
         ast::{node, op::UnaryOp, Node, Punctuator},
-        lexer::{Error as LexError, TokenKind},
+        lexer::TokenKind,
         parser::{
             expression::unary::UnaryExpression, AllowAwait, AllowYield, Cursor, ParseError,
             ParseResult, TokenParser,
         },
     },
-    Interner,
 };
 
 use std::io::Read;
@@ -55,90 +52,39 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("UpdateExpression", "Parsing");
 
-        let tok = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+        let tok = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
         match tok.kind() {
             TokenKind::Punctuator(Punctuator::Inc) => {
-                cursor
-                    .next(interner)?
-                    .expect("Punctuator::Inc token disappeared");
+                cursor.next()?.expect("Punctuator::Inc token disappeared");
                 return Ok(node::UnaryOp::new(
                     UnaryOp::IncrementPre,
-                    UnaryExpression::new(self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?,
+                    UnaryExpression::new(self.allow_yield, self.allow_await).parse(cursor)?,
                 )
                 .into());
             }
             TokenKind::Punctuator(Punctuator::Dec) => {
-                cursor
-                    .next(interner)?
-                    .expect("Punctuator::Dec token disappeared");
+                cursor.next()?.expect("Punctuator::Dec token disappeared");
                 return Ok(node::UnaryOp::new(
                     UnaryOp::DecrementPre,
-                    UnaryExpression::new(self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?,
+                    UnaryExpression::new(self.allow_yield, self.allow_await).parse(cursor)?,
                 )
                 .into());
             }
             _ => {}
         }
 
-        let lhs = LeftHandSideExpression::new(self.allow_yield, self.allow_await)
-            .parse(cursor, interner)?;
-        let strict = cursor.strict_mode();
-        if let Some(tok) = cursor.peek(0, interner)? {
-            let token_start = tok.span().start();
+        let lhs = LeftHandSideExpression::new(self.allow_yield, self.allow_await).parse(cursor)?;
+        if let Some(tok) = cursor.peek(0)? {
             match tok.kind() {
                 TokenKind::Punctuator(Punctuator::Inc) => {
-                    cursor
-                        .next(interner)?
-                        .expect("Punctuator::Inc token disappeared");
-                    // https://tc39.es/ecma262/#sec-update-expressions-static-semantics-early-errors
-                    let ok = match &lhs {
-                        Node::Identifier(_) if !strict => true,
-                        Node::Identifier(ident)
-                            if ![Sym::EVAL, Sym::ARGUMENTS].contains(&ident.sym()) =>
-                        {
-                            true
-                        }
-                        Node::GetConstField(_) => true,
-                        Node::GetField(_) => true,
-                        _ => false,
-                    };
-                    if !ok {
-                        return Err(ParseError::lex(LexError::Syntax(
-                            "Invalid left-hand side in assignment".into(),
-                            token_start,
-                        )));
-                    }
-
+                    cursor.next()?.expect("Punctuator::Inc token disappeared");
                     return Ok(node::UnaryOp::new(UnaryOp::IncrementPost, lhs).into());
                 }
                 TokenKind::Punctuator(Punctuator::Dec) => {
-                    cursor
-                        .next(interner)?
-                        .expect("Punctuator::Dec token disappeared");
-                    // https://tc39.es/ecma262/#sec-update-expressions-static-semantics-early-errors
-                    let ok = match &lhs {
-                        Node::Identifier(_) if !strict => true,
-                        Node::Identifier(ident)
-                            if ![Sym::EVAL, Sym::ARGUMENTS].contains(&ident.sym()) =>
-                        {
-                            true
-                        }
-                        Node::GetConstField(_) => true,
-                        Node::GetField(_) => true,
-                        _ => false,
-                    };
-                    if !ok {
-                        return Err(ParseError::lex(LexError::Syntax(
-                            "Invalid left-hand side in assignment".into(),
-                            token_start,
-                        )));
-                    }
-
+                    cursor.next()?.expect("Punctuator::Dec token disappeared");
                     return Ok(node::UnaryOp::new(UnaryOp::DecrementPost, lhs).into());
                 }
                 _ => {}

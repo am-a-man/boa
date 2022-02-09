@@ -1,13 +1,14 @@
 use crate::{
     builtins::Array,
     environment::lexical_environment::Environment,
-    gc::{Finalize, Trace},
     object::{FunctionBuilder, JsObject, ObjectData},
     property::PropertyDescriptor,
     symbol::{self, WellKnownSymbols},
     syntax::ast::node::FormalParameter,
     Context, JsValue,
 };
+
+use gc::{Finalize, Trace};
 use rustc_hash::FxHashSet;
 
 #[derive(Debug, Clone, Trace, Finalize)]
@@ -170,15 +171,9 @@ impl Arguments {
         // a. Let name be parameterNames[index].
 
         for (index, parameter_name_vec) in formals.iter().map(|fp| fp.names()).enumerate().rev() {
-<<<<<<< HEAD
             for parameter_name in parameter_name_vec.iter().cloned() {
                 // b. If name is not an element of mappedNames, then
                 if !mapped_names.contains(parameter_name) {
-=======
-            for parameter_name in parameter_name_vec.iter().copied() {
-                // b. If name is not an element of mappedNames, then
-                if !mapped_names.contains(&parameter_name) {
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                     // i. Add name as an element of the list mappedNames.
                     mapped_names.insert(parameter_name);
                     // ii. If index < len, then
@@ -194,11 +189,7 @@ impl Arguments {
                                 // 1. Let getterClosure be a new Abstract Closure with no parameters that captures
                                 // name and env and performs the following steps when called:
                                 |_, _, captures, context| {
-<<<<<<< HEAD
                                     captures.0.get_binding_value(&captures.1, false, context)
-=======
-                                    captures.0.get_binding_value(captures.1, false, context)
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                                 },
                                 (env.clone(), parameter_name.to_owned()),
                             )
@@ -221,11 +212,7 @@ impl Arguments {
                                     // a. Return env.SetMutableBinding(name, value, false).
                                     captures
                                         .0
-<<<<<<< HEAD
                                         .set_mutable_binding(&captures.1, value, false, context)
-=======
-                                        .set_mutable_binding(captures.1, value, false, context)
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                                         .map(|_| JsValue::Undefined)
                                     // Ok(JsValue::Undefined)
                                 },

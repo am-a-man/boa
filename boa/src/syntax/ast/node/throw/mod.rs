@@ -1,8 +1,10 @@
 use crate::{
+    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -46,9 +48,16 @@ impl Throw {
     }
 }
 
-impl ToInternedString for Throw {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        format!("throw {}", self.expr.to_interned_string(interner))
+impl Executable for Throw {
+    #[inline]
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        Err(self.expr().run(context)?)
+    }
+}
+
+impl fmt::Display for Throw {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "throw {}", self.expr)
     }
 }
 

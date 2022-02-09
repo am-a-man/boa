@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the repository
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v2.3.5
         with:
           submodules: true
           path: boa
@@ -26,7 +26,7 @@ jobs:
           override: true
           profile: minimal
       - name: Cache cargo
-        uses: actions/cache@v2.1.7
+        uses: actions/cache@v2.1.6
         with:
           path: |
             ./boa/target
@@ -36,7 +36,7 @@ jobs:
 
       # Run the test suite and upload the results
       - name: Checkout GitHub pages
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v2.3.5
         with:
           ref: gh-pages
           path: gh-pages
@@ -51,7 +51,7 @@ jobs:
       # Run the results comparison
       - name: Compare results
         if: github.event_name == 'pull_request'
-        id: compare-non-vm
+        id: compare
         shell: bash
         run: |
           cd boa
@@ -80,11 +80,7 @@ jobs:
         continue-on-error: true
         with:
           comment-id: ${{ steps.previous-comment.outputs.comment-id }}
-          body: |
-            ### Test262 conformance changes
-
-            ${{ steps.compare-non-vm.outputs.comment }}
-            ${{ steps.compare-vm.outputs.comment }}
+          body: ${{ steps.compare.outputs.comment }}
           edit-mode: replace
 
       - name: Write a new comment
@@ -93,11 +89,7 @@ jobs:
         continue-on-error: true
         with:
           issue-number: ${{ steps.pr-number.outputs.pr }}
-          body: |
-            ### Test262 conformance changes
-
-            ${{ steps.compare-non-vm.outputs.comment }}
-            ${{ steps.compare-vm.outputs.comment }}
+          body: ${{ steps.compare.outputs.comment }}
 
       # Commit changes to GitHub pages.
       - name: Commit files

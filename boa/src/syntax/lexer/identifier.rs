@@ -7,7 +7,6 @@ use crate::{
         ast::{Keyword, Position, Span},
         lexer::{StringLiteral, Token, TokenKind},
     },
-    Interner,
 };
 use boa_unicode::UnicodeProperties;
 use core::convert::TryFrom;
@@ -81,12 +80,7 @@ impl Identifier {
 }
 
 impl<R> Tokenizer<R> for Identifier {
-    fn lex(
-        &mut self,
-        cursor: &mut Cursor<R>,
-        start_pos: Position,
-        interner: &mut Interner,
-    ) -> Result<Token, Error>
+    fn lex(&mut self, cursor: &mut Cursor<R>, start_pos: Position) -> Result<Token, Error>
     where
         R: Read,
     {
@@ -129,7 +123,7 @@ impl<R> Tokenizer<R> for Identifier {
                     start_pos,
                 ));
             }
-            TokenKind::identifier(interner.get_or_intern(identifier_name))
+            TokenKind::identifier(identifier_name.into_boxed_str())
         };
 
         Ok(Token::new(token_kind, Span::new(start_pos, cursor.pos())))

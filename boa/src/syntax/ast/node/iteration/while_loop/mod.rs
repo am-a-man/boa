@@ -1,8 +1,10 @@
 use crate::{
+    exec::{Executable, InterpreterState},
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, Sym, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -23,7 +25,7 @@ use serde::{Deserialize, Serialize};
 pub struct WhileLoop {
     cond: Box<Node>,
     body: Box<Node>,
-    label: Option<Sym>,
+    label: Option<Box<str>>,
 }
 
 impl WhileLoop {
@@ -35,11 +37,11 @@ impl WhileLoop {
         &self.body
     }
 
-    pub fn label(&self) -> Option<Sym> {
-        self.label
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_ref().map(Box::as_ref)
     }
 
-    pub fn set_label(&mut self, label: Sym) {
+    pub fn set_label(&mut self, label: Box<str>) {
         self.label = Some(label);
     }
 
@@ -56,30 +58,47 @@ impl WhileLoop {
         }
     }
 
-    /// Converts the while loop to a string with the given indentation.
-    pub(in crate::syntax::ast::node) fn to_indented_string(
+    pub(in crate::syntax::ast::node) fn display(
         &self,
-        interner: &Interner,
+        f: &mut fmt::Formatter<'_>,
         indentation: usize,
-    ) -> String {
-        let mut buf = if let Some(label) = self.label {
-            format!("{}: ", interner.resolve_expect(label))
-        } else {
-            String::new()
-        };
-        buf.push_str(&format!(
-            "while ({}) {}",
-            self.cond().to_interned_string(interner),
-            self.body().to_indented_string(interner, indentation)
-        ));
-
-        buf
+    ) -> fmt::Result {
+        if let Some(ref label) = self.label {
+            write!(f, "{}: ", label)?;
+        }
+        write!(f, "while ({}) ", self.cond())?;
+        self.body().display(f, indentation)
     }
 }
 
-impl ToInternedString for WhileLoop {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        self.to_indented_string(interner, 0)
+impl Executable for WhileLoop {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let mut result = JsValue::undefined();
+        while self.cond().run(context)?.to_boolean() {
+            result = self.body().run(context)?;
+            match context.executor().get_current_state() {
+                InterpreterState::Break(label) => {
+                    handle_state_with_labels!(self, label, context, break);
+                    break;
+                }
+                InterpreterState::Continue(label) => {
+                    handle_state_with_labels!(self, label, context, continue)
+                }
+                InterpreterState::Return => {
+                    return Ok(result);
+                }
+                InterpreterState::Executing => {
+                    // Continue execution.
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl fmt::Display for WhileLoop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display(f, 0)
     }
 }
 

@@ -1,8 +1,11 @@
 use crate::{
+    builtins::function::ThisMode,
+    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::{join_nodes, FormalParameter, Node, StatementList},
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -51,28 +54,38 @@ impl ArrowFunctionDecl {
     }
 
     /// Implements the display formatting with indentation.
-    pub(in crate::syntax::ast::node) fn to_indented_string(
+    pub(in crate::syntax::ast::node) fn display(
         &self,
-        interner: &Interner,
+        f: &mut fmt::Formatter<'_>,
         indentation: usize,
-    ) -> String {
-        let mut buf = format!("({}", join_nodes(interner, &self.params));
+    ) -> fmt::Result {
+        write!(f, "(")?;
+        join_nodes(f, &self.params)?;
         if self.body().items().is_empty() {
-            buf.push_str(") => {}");
+            f.write_str(") => {}")
         } else {
-            buf.push_str(&format!(
-                ") => {{\n{}{}}}",
-                self.body.to_indented_string(interner, indentation + 1),
-                "    ".repeat(indentation)
-            ));
+            f.write_str(") => {\n")?;
+            self.body.display(f, indentation + 1)?;
+            write!(f, "{}}}", "    ".repeat(indentation))
         }
-        buf
     }
 }
 
-impl ToInternedString for ArrowFunctionDecl {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        self.to_indented_string(interner, 0)
+impl Executable for ArrowFunctionDecl {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        context.create_function(
+            "",
+            self.params().to_vec(),
+            self.body().clone(),
+            false,
+            ThisMode::Lexical,
+        )
+    }
+}
+
+impl fmt::Display for ArrowFunctionDecl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display(f, 0)
     }
 }
 

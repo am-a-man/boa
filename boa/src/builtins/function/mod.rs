@@ -11,12 +11,20 @@
 //! [spec]: https://tc39.es/ecma262/#sec-function-objects
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function
 
-use super::JsArgs;
+use std::{
+    any::Any,
+    borrow::Cow,
+    fmt,
+    ops::{Deref, DerefMut},
+};
+
+use dyn_clone::DynClone;
+use gc::{Gc, GcCell};
+
 use crate::{
     builtins::BuiltIn,
     context::StandardObjects,
     environment::lexical_environment::Environment,
-<<<<<<< HEAD
     gc::{Finalize, Trace},
     object::JsObject,
     object::{internal_methods::get_prototype_from_constructor, NativeObject, ObjectData},
@@ -34,26 +42,10 @@ use crate::{
 };
 use crate::{
     object::{Ref, RefMut},
-=======
-    gc::{self, Finalize, Gc, Trace},
-    object::{
-        internal_methods::get_prototype_from_constructor, JsObject, NativeObject, Object,
-        ObjectData,
-    },
-    object::{ConstructorBuilder, FunctionBuilder, Ref, RefMut},
-    property::{Attribute, PropertyDescriptor, PropertyKey},
-    symbol::WellKnownSymbols,
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
     value::IntegerOrInfinity,
-    BoaProfiler, Context, JsResult, JsString, JsValue,
 };
-use dyn_clone::DynClone;
-use std::{
-    any::Any,
-    borrow::Cow,
-    fmt,
-    ops::{Deref, DerefMut},
-};
+
+use super::JsArgs;
 
 pub(crate) mod arguments;
 #[cfg(test)]
@@ -146,7 +138,7 @@ impl ConstructorKind {
 /// with `Any::downcast_ref` and `Any::downcast_mut` to recover the original
 /// type.
 #[derive(Clone, Debug, Trace, Finalize)]
-pub struct Captures(Gc<gc::Cell<Box<dyn NativeObject>>>);
+pub struct Captures(Gc<GcCell<Box<dyn NativeObject>>>);
 
 impl Captures {
     /// Creates a new capture context.
@@ -154,7 +146,7 @@ impl Captures {
     where
         T: NativeObject,
     {
-        Self(Gc::new(gc::Cell::new(Box::new(captures))))
+        Self(Gc::new(GcCell::new(Box::new(captures))))
     }
 
     /// Casts `Captures` to `Any`
@@ -162,7 +154,7 @@ impl Captures {
     /// # Panics
     ///
     /// Panics if it's already borrowed as `&mut Any`
-    pub fn as_any(&self) -> gc::Ref<'_, dyn Any> {
+    pub fn as_any(&self) -> gc::GcCellRef<'_, dyn Any> {
         Ref::map(self.0.borrow(), |data| data.deref().as_any())
     }
 
@@ -171,7 +163,7 @@ impl Captures {
     /// # Panics
     ///
     /// Panics if it's already borrowed as `&mut Any`
-    pub fn as_mut_any(&self) -> gc::RefMut<'_, Box<dyn NativeObject>, dyn Any> {
+    pub fn as_mut_any(&self) -> gc::GcCellRefMut<'_, Box<dyn NativeObject>, dyn Any> {
         RefMut::map(self.0.borrow_mut(), |data| data.deref_mut().as_mut_any())
     }
 }
@@ -194,6 +186,14 @@ pub enum Function {
         constructor: bool,
         captures: Captures,
     },
+    Ordinary {
+        constructor: bool,
+        this_mode: ThisMode,
+        body: RcStatementList,
+        params: Box<[FormalParameter]>,
+        environment: Environment,
+    },
+    #[cfg(feature = "vm")]
     VmOrdinary {
         code: Gc<crate::vm::CodeBlock>,
         environment: Environment,
@@ -207,7 +207,6 @@ impl fmt::Debug for Function {
 }
 
 impl Function {
-<<<<<<< HEAD
     // Adds the final rest parameters to the Environment as an array
     pub(crate) fn add_rest_param(
         param: &FormalParameter,
@@ -265,13 +264,13 @@ impl Function {
         }
     }
 
-=======
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
     /// Returns true if the function object is a constructor.
     pub fn is_constructor(&self) -> bool {
         match self {
             Self::Native { constructor, .. } => *constructor,
             Self::Closure { constructor, .. } => *constructor,
+            Self::Ordinary { constructor, .. } => *constructor,
+            #[cfg(feature = "vm")]
             Self::VmOrdinary { code, .. } => code.constructor,
         }
     }
@@ -416,7 +415,7 @@ impl BuiltInFunctionObject {
         })?;
 
         let this_arg = args.get_or_undefined(0).clone();
-        let bound_args = args.get(1..).unwrap_or(&[]).to_vec();
+        let bound_args = args.get(1..).unwrap_or_else(|| &[]).to_vec();
         let arg_count = bound_args.len() as i64;
 
         // 3. Let F be ? BoundFunctionCreate(Target, thisArg, args).
@@ -534,7 +533,6 @@ impl BuiltInFunctionObject {
                 },
                 Some(name),
             ) => Ok(format!("function {}() {{\n  [native Code]\n}}", &name).into()),
-<<<<<<< HEAD
             (Function::Ordinary { body, params, .. }, Some(name)) => {
                 let arguments: String = {
                     let mut argument_list: Vec<Cow<'_, str>> = Vec::new();
@@ -581,15 +579,8 @@ impl BuiltInFunctionObject {
                     )
                     .into())
                 }
-=======
-            (Function::VmOrdinary { .. }, Some(name)) if name.is_empty() => {
-                Ok("[Function (anonymous)]".into())
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
             }
-            (Function::VmOrdinary { .. }, Some(name)) => {
-                Ok(format!("[Function: {}]", &name).into())
-            }
-            (Function::VmOrdinary { .. }, None) => Ok("[Function (anonymous)]".into()),
+
             _ => Ok("TODO".into()),
         }
     }

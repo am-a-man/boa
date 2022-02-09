@@ -31,7 +31,6 @@ use crate::{
     },
     BoaProfiler,
 };
-use boa_interner::{Interner, Sym};
 use std::io::Read;
 
 /// Hoistable declaration parsing.
@@ -69,36 +68,36 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("HoistableDeclaration", "Parsing");
-        let tok = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+        let tok = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
         match tok.kind() {
             TokenKind::Keyword(Keyword::Function) => {
-                let next_token = cursor.peek(1, interner)?.ok_or(ParseError::AbruptEnd)?;
+                let next_token = cursor.peek(1)?.ok_or(ParseError::AbruptEnd)?;
                 if let TokenKind::Punctuator(Punctuator::Mul) = next_token.kind() {
                     GeneratorDeclaration::new(self.allow_yield, self.allow_await, self.is_default)
-                        .parse(cursor, interner)
+                        .parse(cursor)
                         .map(Node::from)
                 } else {
                     FunctionDeclaration::new(self.allow_yield, self.allow_await, self.is_default)
-                        .parse(cursor, interner)
+                        .parse(cursor)
                         .map(Node::from)
                 }
             }
             TokenKind::Keyword(Keyword::Async) => {
-                let next_token = cursor.peek(2, interner)?.ok_or(ParseError::AbruptEnd)?;
+                let next_token = cursor.peek(2)?.ok_or(ParseError::AbruptEnd)?;
                 if let TokenKind::Punctuator(Punctuator::Mul) = next_token.kind() {
                     AsyncGeneratorDeclaration::new(
                         self.allow_yield,
                         self.allow_await,
                         self.is_default,
                     )
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
                 } else {
                     AsyncFunctionDeclaration::new(self.allow_yield, self.allow_await, false)
-                        .parse(cursor, interner)
+                        .parse(cursor)
                         .map(Node::from)
                 }
             }
@@ -124,23 +123,19 @@ trait CallableDeclaration {
 fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
     c: &C,
     cursor: &mut Cursor<R>,
-    interner: &mut Interner,
-) -> Result<(Sym, Box<[FormalParameter]>, StatementList), ParseError> {
-    let next_token = cursor.peek(0, interner)?;
+) -> Result<(Box<str>, Box<[FormalParameter]>, StatementList), ParseError> {
+    let next_token = cursor.peek(0)?;
     let name = if let Some(token) = next_token {
         match token.kind() {
             TokenKind::Punctuator(Punctuator::OpenParen) => {
                 if !c.is_default() {
-                    return Err(ParseError::unexpected(
-                        token.to_string(interner),
-                        token.span(),
-                        c.error_context(),
-                    ));
+                    return Err(ParseError::unexpected(token.clone(), c.error_context()));
                 }
-                Sym::DEFAULT
+                "default".into()
             }
-            _ => BindingIdentifier::new(c.name_allow_yield(), c.name_allow_await())
-                .parse(cursor, interner)?,
+            _ => {
+                BindingIdentifier::new(c.name_allow_yield(), c.name_allow_await()).parse(cursor)?
+            }
         }
     } else {
         return Err(ParseError::AbruptEnd);
@@ -148,10 +143,10 @@ fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
 
     // Early Error: If BindingIdentifier is present and the source code matching BindingIdentifier is strict mode code,
     // it is a Syntax Error if the StringValue of BindingIdentifier is "eval" or "arguments".
-    if cursor.strict_mode() && [Sym::EVAL, Sym::ARGUMENTS].contains(&name) {
+    if cursor.strict_mode() && ["eval", "arguments"].contains(&name.as_ref()) {
         return Err(ParseError::lex(LexError::Syntax(
             "Unexpected eval or arguments in strict mode".into(),
-            match cursor.peek(0, interner)? {
+            match cursor.peek(0)? {
                 Some(token) => token.span().end(),
                 None => Position::new(1, 1),
             },
@@ -159,20 +154,19 @@ fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
     }
 
     let params_start_position = cursor
-        .expect(Punctuator::OpenParen, c.error_context(), interner)?
+        .expect(Punctuator::OpenParen, c.error_context())?
         .span()
         .end();
 
     let params = FormalParameters::new(c.parameters_allow_yield(), c.parameters_allow_await())
-        .parse(cursor, interner)?;
+        .parse(cursor)?;
 
-    cursor.expect(Punctuator::CloseParen, c.error_context(), interner)?;
-    cursor.expect(Punctuator::OpenBlock, c.error_context(), interner)?;
+    cursor.expect(Punctuator::CloseParen, c.error_context())?;
+    cursor.expect(Punctuator::OpenBlock, c.error_context())?;
 
-    let body =
-        FunctionBody::new(c.body_allow_yield(), c.body_allow_await()).parse(cursor, interner)?;
+    let body = FunctionBody::new(c.body_allow_yield(), c.body_allow_await()).parse(cursor)?;
 
-    cursor.expect(Punctuator::CloseBlock, c.error_context(), interner)?;
+    cursor.expect(Punctuator::CloseBlock, c.error_context())?;
 
     // Early Error: If the source code matching FormalParameters is strict mode code,
     // the Early Error rules for UniqueFormalParameters : FormalParameters are applied.
@@ -196,24 +190,13 @@ fn parse_callable_declaration<R: Read, C: CallableDeclaration>(
     // also occurs in the LexicallyDeclaredNames of FunctionBody.
     // https://tc39.es/ecma262/#sec-function-definitions-static-semantics-early-errors
     {
-        let lexically_declared_names = body.lexically_declared_names(interner);
+        let lexically_declared_names = body.lexically_declared_names();
         for param in params.parameters.as_ref() {
             for param_name in param.names() {
-<<<<<<< HEAD
                 if lexically_declared_names.contains(param_name) {
                     return Err(ParseError::lex(LexError::Syntax(
                         format!("Redeclaration of formal parameter `{}`", param_name).into(),
                         match cursor.peek(0)? {
-=======
-                if lexically_declared_names.contains(&param_name) {
-                    return Err(ParseError::lex(LexError::Syntax(
-                        format!(
-                            "Redeclaration of formal parameter `{}`",
-                            interner.resolve_expect(param_name)
-                        )
-                        .into(),
-                        match cursor.peek(0, interner)? {
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                             Some(token) => token.span().end(),
                             None => Position::new(1, 1),
                         },

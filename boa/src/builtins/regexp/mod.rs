@@ -38,6 +38,9 @@ pub struct RegExp {
     /// Regex matcher.
     matcher: Regex,
 
+    /// Update last_index, set if global or sticky flags are set.
+    use_last_index: bool,
+
     /// Flag 's' - dot matches newline characters.
     dot_all: bool,
 
@@ -329,14 +332,15 @@ impl RegExp {
         // 14. Set obj.[[RegExpMatcher]] to the Abstract Closure that evaluates parseResult by applying the semantics provided in 22.2.2 using patternCharacters as the pattern's List of SourceCharacter values and F as the flag parameters.
         let matcher = match Regex::with_flags(&p, f.as_ref()) {
             Err(error) => {
-                return context
-                    .throw_syntax_error(format!("failed to create matcher: {}", error.text));
+                return Err(context
+                    .construct_syntax_error(format!("failed to create matcher: {}", error.text)));
             }
             Ok(val) => val,
         };
 
         let regexp = RegExp {
             matcher,
+            use_last_index: global || sticky,
             dot_all,
             global,
             ignore_case,
@@ -775,7 +779,9 @@ impl RegExp {
 
             // b. If Type(result) is neither Object nor Null, throw a TypeError exception.
             if !result.is_object() && !result.is_null() {
-                return context.throw_type_error("regexp exec returned neither object nor null");
+                return Err(
+                    context.construct_type_error("regexp exec returned neither object nor null")
+                );
             }
 
             // c. Return result.
@@ -784,7 +790,7 @@ impl RegExp {
 
         // 5. Perform ? RequireInternalSlot(R, [[RegExpMatcher]]).
         if !this.is_regexp() {
-            return context.throw_type_error("RegExpExec called with invalid value");
+            return Err(context.construct_type_error("RegExpExec called with invalid value"));
         }
 
         // 6. Return ? RegExpBuiltinExec(R, S).
@@ -808,7 +814,9 @@ impl RegExp {
             if let Some(rx) = obj.as_regexp() {
                 rx.clone()
             } else {
-                return context.throw_type_error("RegExpBuiltinExec called with invalid value");
+                return Err(
+                    context.construct_type_error("RegExpBuiltinExec called with invalid value")
+                );
             }
         };
 
@@ -862,8 +870,9 @@ impl RegExp {
             ) {
                 Ok(s) => s.len(),
                 Err(_) => {
-                    return context
-                        .throw_type_error("Failed to get byte index from utf16 encoded string")
+                    return Err(context.construct_type_error(
+                        "Failed to get byte index from utf16 encoded string",
+                    ))
                 }
             };
             let r = matcher.find_from(&input, last_byte_index).next();
@@ -1037,8 +1046,9 @@ impl RegExp {
         let rx = if let Some(rx) = this.as_object() {
             rx
         } else {
-            return context
-                .throw_type_error("RegExp.prototype.match method called on incompatible value");
+            return Err(context.construct_type_error(
+                "RegExp.prototype.match method called on incompatible value",
+            ));
         };
 
         // 3. Let S be ? ToString(string).
@@ -1485,9 +1495,9 @@ impl RegExp {
         let rx = if let Some(rx) = this.as_object() {
             rx
         } else {
-            return context.throw_type_error(
+            return Err(context.construct_type_error(
                 "RegExp.prototype[Symbol.search] method called on incompatible value",
-            );
+            ));
         };
 
         // 3. Let S be ? ToString(string).
@@ -1547,8 +1557,9 @@ impl RegExp {
         let rx = if let Some(rx) = this.as_object() {
             rx
         } else {
-            return context
-                .throw_type_error("RegExp.prototype.split method called on incompatible value");
+            return Err(context.construct_type_error(
+                "RegExp.prototype.split method called on incompatible value",
+            ));
         };
 
         // 3. Let S be ? ToString(string).

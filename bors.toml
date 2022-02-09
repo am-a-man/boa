@@ -1,6 +1,7 @@
 # docs https://bors.tech/documentation/
 status = [
 	"Tests on Linux",
+	"Tests on Linux with vm enabled",
 	"Tests on Windows",
 	"Tests on MacOS",
 	"Rustfmt",
@@ -10,6 +11,7 @@ status = [
 ]
 pr_status = [
 	"Tests on Linux",
+	"Tests on Linux with vm enabled",
 	"Tests on Windows",
 	"Tests on MacOS",
 	"Rustfmt",

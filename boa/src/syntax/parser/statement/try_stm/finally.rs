@@ -6,7 +6,7 @@ use crate::{
             TokenParser,
         },
     },
-    BoaProfiler, Interner,
+    BoaProfiler,
 };
 
 use std::io::Read;
@@ -48,16 +48,12 @@ where
 {
     type Output = node::Finally;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("Finally", "Parsing");
-        cursor.expect(Keyword::Finally, "try statement", interner)?;
+        cursor.expect(Keyword::Finally, "try statement")?;
         Ok(
             Block::new(self.allow_yield, self.allow_await, self.allow_return)
-                .parse(cursor, interner)?
+                .parse(cursor)?
                 .into(),
         )
     }

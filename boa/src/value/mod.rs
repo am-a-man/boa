@@ -10,12 +10,12 @@ use crate::{
         number::{f64_to_int32, f64_to_uint32},
         Number,
     },
-    gc::{Finalize, Trace},
     object::{JsObject, ObjectData},
     property::{PropertyDescriptor, PropertyKey},
     symbol::{JsSymbol, WellKnownSymbols},
     BoaProfiler, Context, JsBigInt, JsResult, JsString,
 };
+use gc::{Finalize, Trace};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::Zero;
@@ -374,7 +374,7 @@ impl JsValue {
             // 5. If success is false and Throw is true, throw a TypeError exception.
             // 6. Return success.
             if !success && throw {
-                return context.throw_type_error("Cannot assign value to property");
+                return Err(context.construct_type_error("Cannot assign value to property"));
             } else {
                 return Ok(value);
             }
@@ -435,7 +435,7 @@ impl JsValue {
                 // v. If Type(result) is not Object, return result.
                 // vi. Throw a TypeError exception.
                 return if result.is_object() {
-                    context.throw_type_error("Symbol.toPrimitive cannot return an object")
+                    Err(context.construct_type_error("Symbol.toPrimitive cannot return an object"))
                 } else {
                     Ok(result)
                 };
@@ -465,29 +465,33 @@ impl JsValue {
     /// [spec]: https://tc39.es/ecma262/#sec-tobigint
     pub fn to_bigint(&self, context: &mut Context) -> JsResult<JsBigInt> {
         match self {
-            JsValue::Null => context.throw_type_error("cannot convert null to a BigInt"),
-            JsValue::Undefined => context.throw_type_error("cannot convert undefined to a BigInt"),
+            JsValue::Null => Err(context.construct_type_error("cannot convert null to a BigInt")),
+            JsValue::Undefined => {
+                Err(context.construct_type_error("cannot convert undefined to a BigInt"))
+            }
             JsValue::String(ref string) => {
                 if let Some(value) = JsBigInt::from_string(string) {
                     Ok(value)
                 } else {
-                    context.throw_syntax_error(format!(
+                    Err(context.construct_syntax_error(format!(
                         "cannot convert string '{}' to bigint primitive",
                         string
-                    ))
+                    )))
                 }
             }
             JsValue::Boolean(true) => Ok(JsBigInt::one()),
             JsValue::Boolean(false) => Ok(JsBigInt::zero()),
             JsValue::Integer(_) | JsValue::Rational(_) => {
-                context.throw_type_error("cannot convert Number to a BigInt")
+                Err(context.construct_type_error("cannot convert Number to a BigInt"))
             }
             JsValue::BigInt(b) => Ok(b.clone()),
             JsValue::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::Number)?;
                 primitive.to_bigint(context)
             }
-            JsValue::Symbol(_) => context.throw_type_error("cannot convert Symbol to a BigInt"),
+            JsValue::Symbol(_) => {
+                Err(context.construct_type_error("cannot convert Symbol to a BigInt"))
+            }
         }
     }
 
@@ -518,7 +522,9 @@ impl JsValue {
             JsValue::Rational(rational) => Ok(Number::to_native_string(*rational).into()),
             JsValue::Integer(integer) => Ok(integer.to_string().into()),
             JsValue::String(string) => Ok(string.clone()),
-            JsValue::Symbol(_) => context.throw_type_error("can't convert symbol to string"),
+            JsValue::Symbol(_) => {
+                Err(context.construct_type_error("can't convert symbol to string"))
+            }
             JsValue::BigInt(ref bigint) => Ok(bigint.to_string().into()),
             JsValue::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::String)?;
@@ -535,7 +541,7 @@ impl JsValue {
     pub fn to_object(&self, context: &mut Context) -> JsResult<JsObject> {
         match self {
             JsValue::Undefined | JsValue::Null => {
-                context.throw_type_error("cannot convert 'null' or 'undefined' to object")
+                Err(context.construct_type_error("cannot convert 'null' or 'undefined' to object"))
             }
             JsValue::Boolean(boolean) => {
                 let prototype = context.standard_objects().boolean_object().prototype();
@@ -853,11 +859,13 @@ impl JsValue {
         let integer_index = self.to_integer(context)?;
 
         if integer_index < 0.0 {
-            return context.throw_range_error("Integer index must be >= 0");
+            return Err(context.construct_range_error("Integer index must be >= 0"));
         }
 
         if integer_index > Number::MAX_SAFE_INTEGER {
-            return context.throw_range_error("Integer index must be less than 2**(53) - 1");
+            return Err(
+                context.construct_range_error("Integer index must be less than 2**(53) - 1")
+            );
         }
 
         Ok(integer_index as usize)
@@ -914,8 +922,12 @@ impl JsValue {
             JsValue::String(ref string) => Ok(string.string_to_number()),
             JsValue::Rational(number) => Ok(number),
             JsValue::Integer(integer) => Ok(f64::from(integer)),
-            JsValue::Symbol(_) => context.throw_type_error("argument must not be a symbol"),
-            JsValue::BigInt(_) => context.throw_type_error("argument must not be a bigint"),
+            JsValue::Symbol(_) => {
+                Err(context.construct_type_error("argument must not be a symbol"))
+            }
+            JsValue::BigInt(_) => {
+                Err(context.construct_type_error("argument must not be a bigint"))
+            }
             JsValue::Object(_) => {
                 let primitive = self.to_primitive(context, PreferredType::Number)?;
                 primitive.to_number(context)
@@ -950,7 +962,7 @@ impl JsValue {
     #[inline]
     pub fn require_object_coercible(&self, context: &mut Context) -> JsResult<&JsValue> {
         if self.is_null_or_undefined() {
-            context.throw_type_error("cannot convert null or undefined to Object")
+            Err(context.construct_type_error("cannot convert null or undefined to Object"))
         } else {
             Ok(self)
         }
@@ -1026,24 +1038,24 @@ impl JsValue {
         .into()
     }
 
-    /// Abstract operation `IsArray ( argument )`
-    ///
-    /// Check if a value is an array.
+    /// Check if it is an array.
     ///
     /// More information:
     ///  - [ECMAScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-isarray
-    pub(crate) fn is_array(&self, context: &mut Context) -> JsResult<bool> {
-        // Note: The spec specifies this function for JsValue.
-        // The main part of the function is implemented for JsObject.
-
+    pub(crate) fn is_array(&self, _context: &mut Context) -> JsResult<bool> {
         // 1. If Type(argument) is not Object, return false.
         if let Some(object) = self.as_object() {
-            object.is_array_abstract(context)
-        }
-        // 4. Return false.
-        else {
+            // 2. If argument is an Array exotic object, return true.
+            //     a. If argument.[[ProxyHandler]] is null, throw a TypeError exception.
+            // 3. If argument is a Proxy exotic object, then
+            //     b. Let target be argument.[[ProxyTarget]].
+            //     c. Return ? IsArray(target).
+            // TODO: handle ProxyObjects
+            Ok(object.is_array())
+        } else {
+            // 4. Return false.
             Ok(false)
         }
     }

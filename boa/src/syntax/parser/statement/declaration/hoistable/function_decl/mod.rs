@@ -1,15 +1,12 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    syntax::{
-        ast::{node::FunctionDecl, Keyword},
-        parser::{
-            statement::declaration::hoistable::{parse_callable_declaration, CallableDeclaration},
-            AllowAwait, AllowDefault, AllowYield, Cursor, ParseError, TokenParser,
-        },
+use crate::syntax::{
+    ast::{node::FunctionDecl, Keyword},
+    parser::{
+        statement::declaration::hoistable::{parse_callable_declaration, CallableDeclaration},
+        AllowAwait, AllowDefault, AllowYield, Cursor, ParseError, TokenParser,
     },
-    Interner,
 };
 use std::io::Read;
 
@@ -82,14 +79,10 @@ where
 {
     type Output = FunctionDecl;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
-        cursor.expect(Keyword::Function, "function declaration", interner)?;
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
+        cursor.expect(Keyword::Function, "function declaration")?;
 
-        let result = parse_callable_declaration(&self, cursor, interner)?;
+        let result = parse_callable_declaration(&self, cursor)?;
 
         Ok(FunctionDecl::new(result.0, result.1, result.2))
     }

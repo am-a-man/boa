@@ -7,10 +7,10 @@
 
 use super::global_environment_record::GlobalEnvironmentRecord;
 use crate::{
-    environment::environment_record_trait::EnvironmentRecordTrait, gc::Gc, object::JsObject,
-    BoaProfiler, Context, JsResult, JsValue,
+    environment::environment_record_trait::EnvironmentRecordTrait, object::JsObject, BoaProfiler,
+    Context, JsResult, JsValue,
 };
-use boa_interner::Sym;
+use gc::Gc;
 use std::{collections::VecDeque, error, fmt};
 
 /// Environments are wrapped in a Box and then in a GC wrapper
@@ -93,14 +93,9 @@ impl Context {
             .recursive_get_this_binding(self)
     }
 
-    pub(crate) fn get_global_this_binding(&mut self) -> JsResult<JsValue> {
-        let global = self.realm.global_env.clone();
-        global.get_this_binding(self)
-    }
-
     pub(crate) fn create_mutable_binding(
         &mut self,
-        name: Sym,
+        name: &str,
         deletion: bool,
         scope: VariableScope,
     ) -> JsResult<()> {
@@ -110,7 +105,7 @@ impl Context {
 
     pub(crate) fn create_immutable_binding(
         &mut self,
-        name: Sym,
+        name: &str,
         deletion: bool,
         scope: VariableScope,
     ) -> JsResult<()> {
@@ -120,7 +115,7 @@ impl Context {
 
     pub(crate) fn set_mutable_binding(
         &mut self,
-        name: Sym,
+        name: &str,
         value: JsValue,
         strict: bool,
     ) -> JsResult<()> {
@@ -128,9 +123,7 @@ impl Context {
             .recursive_set_mutable_binding(name, value, strict, self)
     }
 
-    pub(crate) fn initialize_binding(&mut self, name: Sym, value: JsValue) -> JsResult<()> {
-        let _timer =
-            BoaProfiler::global().start_event("LexicalEnvironment::initialize_binding", "env");
+    pub(crate) fn initialize_binding(&mut self, name: &str, value: JsValue) -> JsResult<()> {
         self.get_current_environment()
             .recursive_initialize_binding(name, value, self)
     }
@@ -138,8 +131,6 @@ impl Context {
     /// When neededing to clone an environment (linking it with another environnment)
     /// cloning is more suited. The GC will remove the env once nothing is linking to it anymore
     pub(crate) fn get_current_environment(&mut self) -> Environment {
-        let _timer =
-            BoaProfiler::global().start_event("LexicalEnvironment::get_current_environment", "env");
         self.realm
             .environment
             .environment_stack
@@ -148,15 +139,12 @@ impl Context {
             .clone()
     }
 
-    pub(crate) fn has_binding(&mut self, name: Sym) -> JsResult<bool> {
-        let _timer = BoaProfiler::global().start_event("LexicalEnvironment::has_binding", "env");
+    pub(crate) fn has_binding(&mut self, name: &str) -> JsResult<bool> {
         self.get_current_environment()
             .recursive_has_binding(name, self)
     }
 
-    pub(crate) fn get_binding_value(&mut self, name: Sym) -> JsResult<JsValue> {
-        let _timer =
-            BoaProfiler::global().start_event("LexicalEnvironment::get_binding_value", "env");
+    pub(crate) fn get_binding_value(&mut self, name: &str) -> JsResult<JsValue> {
         self.get_current_environment()
             .recursive_get_binding_value(name, self)
     }

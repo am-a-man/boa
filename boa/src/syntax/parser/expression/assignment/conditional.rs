@@ -8,7 +8,6 @@
 //! [spec]: https://tc39.es/ecma262/#sec-conditional-operator
 
 use crate::syntax::lexer::TokenKind;
-use crate::Interner;
 use crate::{
     syntax::{
         ast::{node::ConditionalOp, Node, Punctuator},
@@ -63,23 +62,23 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("ConditionalExpression", "Parsing");
 
         let lhs = ShortCircuitExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-            .parse(cursor, interner)?;
+            .parse(cursor)?;
 
-        if let Some(tok) = cursor.peek(0, interner)? {
+        if let Some(tok) = cursor.peek(0)? {
             if tok.kind() == &TokenKind::Punctuator(Punctuator::Question) {
-                cursor.next(interner)?.expect("? character vanished"); // Consume the token.
+                cursor.next()?.expect("? character vanished"); // Consume the token.
                 let then_clause =
                     AssignmentExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
-                cursor.expect(Punctuator::Colon, "conditional expression", interner)?;
+                        .parse(cursor)?;
+                cursor.expect(Punctuator::Colon, "conditional expression")?;
 
                 let else_clause =
                     AssignmentExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
+                        .parse(cursor)?;
                 return Ok(ConditionalOp::new(lhs, then_clause, else_clause).into());
             }
         }

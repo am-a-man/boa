@@ -32,7 +32,6 @@ use crate::{
         lexer::{InputElement, TokenKind},
         parser::ParseError,
     },
-    Interner,
 };
 use std::io::Read;
 
@@ -76,30 +75,30 @@ macro_rules! expression { ($name:ident, $lower:ident, [$( $op:path ),*], [$( $lo
     {
         type Output = Node;
 
-        fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner)-> ParseResult {
+        fn parse(self, cursor: &mut Cursor<R>)-> ParseResult {
             let _timer = BoaProfiler::global().start_event(stringify!($name), "Parsing");
 
             if $goal.is_some() {
                 cursor.set_goal($goal.unwrap());
             }
 
-            let mut lhs = $lower::new($( self.$low_param ),*).parse(cursor, interner)?;
-            while let Some(tok) = cursor.peek(0, interner)? {
+            let mut lhs = $lower::new($( self.$low_param ),*).parse(cursor)?;
+            while let Some(tok) = cursor.peek(0)? {
                 match *tok.kind() {
                     TokenKind::Punctuator(op) if $( op == $op )||* => {
-                        let _ = cursor.next(interner).expect("token disappeared");
+                        let _ = cursor.next().expect("token disappeared");
                         lhs = BinOp::new(
                             op.as_binop().expect("Could not get binary operation."),
                             lhs,
-                            $lower::new($( self.$low_param ),*).parse(cursor, interner)?
+                            $lower::new($( self.$low_param ),*).parse(cursor)?
                         ).into();
                     }
                     TokenKind::Keyword(op) if $( op == $op )||* => {
-                        let _ = cursor.next(interner).expect("token disappeared");
+                        let _ = cursor.next().expect("token disappeared");
                         lhs = BinOp::new(
                             op.as_binop().expect("Could not get binary operation."),
                             lhs,
-                            $lower::new($( self.$low_param ),*).parse(cursor, interner)?
+                            $lower::new($( self.$low_param ),*).parse(cursor)?
                         ).into();
                     }
                     _ => break
@@ -215,41 +214,41 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("ShortCircuitExpression", "Parsing");
 
         let mut current_node =
             BitwiseORExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-                .parse(cursor, interner)?;
+                .parse(cursor)?;
         let mut previous = self.previous;
 
-        while let Some(tok) = cursor.peek(0, interner)? {
+        while let Some(tok) = cursor.peek(0)? {
             match tok.kind() {
                 TokenKind::Punctuator(Punctuator::BoolAnd) => {
                     if previous == PreviousExpr::Coalesce {
                         return Err(ParseError::expected(
-                            ["??".to_owned()],
-                            tok.to_string(interner), tok.span(),
+                            [TokenKind::Punctuator(Punctuator::Coalesce)],
+                            tok.clone(),
                             "logical expression (cannot use '??' without parentheses within '||' or '&&')",
                         ));
                     }
-                    let _ = cursor.next(interner)?.expect("'&&' expected");
+                    let _ = cursor.next()?.expect("'&&' expected");
                     previous = PreviousExpr::Logical;
                     let rhs =
                         BitwiseORExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?;
+                            .parse(cursor)?;
 
                     current_node = BinOp::new(LogOp::And, current_node, rhs).into();
                 }
                 TokenKind::Punctuator(Punctuator::BoolOr) => {
                     if previous == PreviousExpr::Coalesce {
                         return Err(ParseError::expected(
-                            ["??".to_owned()],
-                            tok.to_string(interner), tok.span(),
+                            [TokenKind::Punctuator(Punctuator::Coalesce)],
+                            tok.clone(),
                             "logical expression (cannot use '??' without parentheses within '||' or '&&')",
                         ));
                     }
-                    let _ = cursor.next(interner)?.expect("'||' expected");
+                    let _ = cursor.next()?.expect("'||' expected");
                     previous = PreviousExpr::Logical;
                     let rhs = ShortCircuitExpression::with_previous(
                         self.allow_in,
@@ -257,23 +256,25 @@ where
                         self.allow_await,
                         PreviousExpr::Logical,
                     )
-                    .parse(cursor, interner)?;
+                    .parse(cursor)?;
                     current_node = BinOp::new(LogOp::Or, current_node, rhs).into();
                 }
                 TokenKind::Punctuator(Punctuator::Coalesce) => {
                     if previous == PreviousExpr::Logical {
                         return Err(ParseError::expected(
-                            ["&&".to_owned(), "||".to_owned()],
-                            tok.to_string(interner),
-                            tok.span(),
+                            [
+                                TokenKind::Punctuator(Punctuator::BoolAnd),
+                                TokenKind::Punctuator(Punctuator::BoolOr),
+                            ],
+                            tok.clone(),
                             "cannot use '??' unparenthesized within '||' or '&&'",
                         ));
                     }
-                    let _ = cursor.next(interner)?.expect("'??' expected");
+                    let _ = cursor.next()?.expect("'??' expected");
                     previous = PreviousExpr::Coalesce;
                     let rhs =
                         BitwiseORExpression::new(self.allow_in, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?;
+                            .parse(cursor)?;
                     current_node = BinOp::new(LogOp::Coalesce, current_node, rhs).into();
                 }
                 _ => break,
@@ -481,16 +482,15 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("Relation Expression", "Parsing");
 
         if None::<InputElement>.is_some() {
             cursor.set_goal(None::<InputElement>.unwrap());
         }
 
-        let mut lhs =
-            ShiftExpression::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
-        while let Some(tok) = cursor.peek(0, interner)? {
+        let mut lhs = ShiftExpression::new(self.allow_yield, self.allow_await).parse(cursor)?;
+        while let Some(tok) = cursor.peek(0)? {
             match *tok.kind() {
                 TokenKind::Punctuator(op)
                     if op == Punctuator::LessThan
@@ -498,12 +498,11 @@ where
                         || op == Punctuator::LessThanOrEq
                         || op == Punctuator::GreaterThanOrEq =>
                 {
-                    let _ = cursor.next(interner).expect("token disappeared");
+                    let _ = cursor.next().expect("token disappeared");
                     lhs = BinOp::new(
                         op.as_binop().expect("Could not get binary operation."),
                         lhs,
-                        ShiftExpression::new(self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                        ShiftExpression::new(self.allow_yield, self.allow_await).parse(cursor)?,
                     )
                     .into();
                 }
@@ -511,12 +510,11 @@ where
                     if op == Keyword::InstanceOf
                         || (op == Keyword::In && self.allow_in == AllowIn(true)) =>
                 {
-                    let _ = cursor.next(interner).expect("token disappeared");
+                    let _ = cursor.next().expect("token disappeared");
                     lhs = BinOp::new(
                         op.as_binop().expect("Could not get binary operation."),
                         lhs,
-                        ShiftExpression::new(self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                        ShiftExpression::new(self.allow_yield, self.allow_await).parse(cursor)?,
                     )
                     .into();
                 }

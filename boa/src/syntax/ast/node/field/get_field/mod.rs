@@ -1,8 +1,10 @@
 use crate::{
+    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -58,13 +60,21 @@ impl GetField {
     }
 }
 
-impl ToInternedString for GetField {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        format!(
-            "{}[{}]",
-            self.obj.to_interned_string(interner),
-            self.field.to_interned_string(interner)
-        )
+impl Executable for GetField {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let mut obj = self.obj().run(context)?;
+        if !obj.is_object() {
+            obj = JsValue::Object(obj.to_object(context)?);
+        }
+        let field = self.field().run(context)?;
+
+        obj.get_field(field.to_property_key(context)?, context)
+    }
+}
+
+impl fmt::Display for GetField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}[{}]", self.obj(), self.field())
     }
 }
 

@@ -93,7 +93,9 @@ impl Intl {
                 let k_value = o.get(k, context)?;
                 // ii. If Type(kValue) is not String or Object, throw a TypeError exception.
                 if !(k_value.is_object() || k_value.is_string()) {
-                    return context.throw_type_error("locale should be a String or Object");
+                    return Err(context
+                        .throw_type_error("locale should be a String or Object")
+                        .unwrap_err());
                 }
                 // iii. If Type(kValue) is Object and kValue has an [[InitializedLocale]] internal slot, then
                 // TODO: handle checks for InitializedLocale internal slot (there should be an if statement here)

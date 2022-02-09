@@ -1,10 +1,15 @@
 //! Block AST node.
 
 use super::{Node, StatementList};
-use crate::gc::{Finalize, Trace};
-use boa_interner::{Interner, Sym, ToInternedString};
+use crate::{
+    environment::declarative_environment_record::DeclarativeEnvironmentRecord,
+    exec::Executable,
+    exec::InterpreterState,
+    gc::{Finalize, Trace},
+    BoaProfiler, Context, JsResult, JsValue,
+};
+use std::{collections::HashSet, fmt};
 
-use rustc_hash::FxHashSet;
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
 
@@ -40,22 +45,66 @@ impl Block {
         self.statements.items()
     }
 
-    pub(crate) fn lexically_declared_names(&self, interner: &Interner) -> FxHashSet<Sym> {
-        self.statements.lexically_declared_names(interner)
+    pub(crate) fn lexically_declared_names(&self) -> HashSet<&str> {
+        self.statements.lexically_declared_names()
     }
 
-    pub(crate) fn var_declared_named(&self) -> FxHashSet<Sym> {
+    pub(crate) fn var_declared_named(&self) -> HashSet<&str> {
         self.statements.var_declared_names()
     }
 
     /// Implements the display formatting with indentation.
-    pub(super) fn to_indented_string(&self, interner: &Interner, indentation: usize) -> String {
-        format!(
-            "{{\n{}{}}}",
-            self.statements
-                .to_indented_string(interner, indentation + 1),
-            "    ".repeat(indentation)
-        )
+    pub(super) fn display(&self, f: &mut fmt::Formatter<'_>, indentation: usize) -> fmt::Result {
+        writeln!(f, "{{")?;
+        self.statements.display(f, indentation + 1)?;
+        write!(f, "{}}}", "    ".repeat(indentation))
+    }
+}
+
+impl Executable for Block {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let _timer = BoaProfiler::global().start_event("Block", "exec");
+        {
+            let env = context.get_current_environment();
+            context.push_environment(DeclarativeEnvironmentRecord::new(Some(env)));
+        }
+
+        // https://tc39.es/ecma262/#sec-block-runtime-semantics-evaluation
+        // The return value is uninitialized, which means it defaults to Value::Undefined
+        let mut obj = JsValue::default();
+        for statement in self.items() {
+            obj = statement.run(context).map_err(|e| {
+                // No matter how control leaves the Block the LexicalEnvironment is always
+                // restored to its former state.
+                context.pop_environment();
+                e
+            })?;
+
+            match context.executor().get_current_state() {
+                InterpreterState::Return => {
+                    // Early return.
+                    break;
+                }
+                InterpreterState::Break(_label) => {
+                    // TODO, break to a label.
+
+                    // Early break.
+                    break;
+                }
+                InterpreterState::Continue(_label) => {
+                    // TODO, continue to a label
+                    break;
+                }
+                InterpreterState::Executing => {
+                    // Continue execution
+                }
+            }
+        }
+
+        // pop the block env
+        let _ = context.pop_environment();
+
+        Ok(obj)
     }
 }
 
@@ -70,9 +119,9 @@ where
     }
 }
 
-impl ToInternedString for Block {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        self.to_indented_string(interner, 0)
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display(f, 0)
     }
 }
 

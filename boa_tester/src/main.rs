@@ -173,17 +173,13 @@ enum Cli {
         #[structopt(long, parse(from_os_str), default_value = "./test262")]
         test262_path: PathBuf,
 
-        /// Which specific test or test suite to run. Should be a path relative to the Test262 directory: e.g. "test/language/types/number"
+        /// Which specific test or test suite to run.
         #[structopt(short, long, parse(from_os_str), default_value = "test")]
         suite: PathBuf,
 
         /// Optional output folder for the full results information.
         #[structopt(short, long, parse(from_os_str))]
         output: Option<PathBuf>,
-
-        /// Execute tests serially
-        #[structopt(short, long)]
-        disable_parallelism: bool,
     },
     Compare {
         /// Base results of the suite.
@@ -208,11 +204,9 @@ fn main() {
             test262_path,
             suite,
             output,
-            disable_parallelism,
         } => {
             run_test_suite(
                 verbose,
-                !disable_parallelism,
                 test262_path.as_path(),
                 suite.as_path(),
                 output.as_deref(),
@@ -227,13 +221,7 @@ fn main() {
 }
 
 /// Runs the full test suite.
-fn run_test_suite(
-    verbose: u8,
-    parallel: bool,
-    test262_path: &Path,
-    suite: &Path,
-    output: Option<&Path>,
-) {
+fn run_test_suite(verbose: u8, test262_path: &Path, suite: &Path, output: Option<&Path>) {
     if let Some(path) = output {
         if path.exists() {
             if !path.is_dir() {
@@ -266,7 +254,7 @@ fn run_test_suite(
         if verbose != 0 {
             println!("Test suite loaded, starting tests...");
         }
-        let results = suite.run(&harness, verbose, parallel);
+        let results = suite.run(&harness, verbose);
 
         println!();
         println!("Results:");
@@ -329,7 +317,6 @@ struct SuiteResult {
 
 /// Outcome of a test.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 struct TestResult {
     #[serde(rename = "n")]
     name: Box<str>,
@@ -355,7 +342,6 @@ enum TestOutcomeResult {
 
 /// Represents a test.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 struct Test {
     name: Box<str>,
     description: Box<str>,
@@ -495,7 +481,6 @@ enum Phase {
 /// Locale information structure.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(transparent)]
-#[allow(dead_code)]
 struct Locale {
     locale: Box<[Box<str>]>,
 }

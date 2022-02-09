@@ -1,38 +1,32 @@
 //! Block statement parsing tests.
 
-use crate::{
-    syntax::{
-        ast::{
-            node::{
-                Assign, Block, Call, Declaration, DeclarationList, FunctionDecl, Identifier, Node,
-                Return, UnaryOp,
-            },
-            op, Const,
+use crate::syntax::{
+    ast::{
+        node::{
+            Assign, Block, Call, Declaration, DeclarationList, FunctionDecl, Identifier, Node,
+            Return, UnaryOp,
         },
-        parser::tests::check_parser,
+        op, Const,
     },
-    Interner,
+    parser::tests::check_parser,
 };
 
 /// Helper function to check a block.
 // TODO: #[track_caller]: https://github.com/rust-lang/rust/issues/47809
-fn check_block<B>(js: &str, block: B, interner: &mut Interner)
+fn check_block<B>(js: &str, block: B)
 where
     B: Into<Box<[Node]>>,
 {
-    check_parser(js, vec![Block::from(block.into()).into()], interner);
+    check_parser(js, vec![Block::from(block.into()).into()]);
 }
 
 #[test]
 fn empty() {
-    let mut interner = Interner::default();
-    check_block("{}", vec![], &mut interner);
+    check_block("{}", vec![]);
 }
 
 #[test]
 fn non_empty() {
-    let mut interner = Interner::default();
-    let a = interner.get_or_intern_static("a");
     check_block(
         r"{
             var a = 10;
@@ -41,20 +35,16 @@ fn non_empty() {
         vec![
             DeclarationList::Var(
                 vec![Declaration::new_with_identifier(
-                    a,
+                    "a",
                     Some(Const::from(10).into()),
                 )]
                 .into(),
             )
             .into(),
-            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::new(a)).into(),
+            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::from("a")).into(),
         ],
-        &mut interner,
     );
 
-    let mut interner = Interner::default();
-    let hello = interner.get_or_intern_static("hello");
-    let a = interner.get_or_intern_static("a");
     check_block(
         r"{
             function hello() {
@@ -66,30 +56,26 @@ fn non_empty() {
         }",
         vec![
             FunctionDecl::new(
-                hello,
+                "hello".to_owned().into_boxed_str(),
                 vec![],
                 vec![Return::new(Const::from(10), None).into()],
             )
             .into(),
             DeclarationList::Var(
                 vec![Declaration::new_with_identifier(
-                    a,
-                    Node::from(Call::new(Identifier::new(hello), vec![])),
+                    "a",
+                    Node::from(Call::new(Identifier::from("hello"), vec![])),
                 )]
                 .into(),
             )
             .into(),
-            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::new(a)).into(),
+            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::from("a")).into(),
         ],
-        &mut interner,
     );
 }
 
 #[test]
 fn hoisting() {
-    let mut interner = Interner::default();
-    let hello = interner.get_or_intern_static("hello");
-    let a = interner.get_or_intern_static("a");
     check_block(
         r"{
             var a = hello();
@@ -99,26 +85,23 @@ fn hoisting() {
         }",
         vec![
             FunctionDecl::new(
-                hello,
+                "hello".to_owned().into_boxed_str(),
                 vec![],
                 vec![Return::new(Const::from(10), None).into()],
             )
             .into(),
             DeclarationList::Var(
                 vec![Declaration::new_with_identifier(
-                    a,
-                    Node::from(Call::new(Identifier::new(hello), vec![])),
+                    "a",
+                    Node::from(Call::new(Identifier::from("hello"), vec![])),
                 )]
                 .into(),
             )
             .into(),
-            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::new(a)).into(),
+            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::from("a")).into(),
         ],
-        &mut interner,
     );
 
-    let mut interner = Interner::default();
-    let a = interner.get_or_intern_static("a");
     check_block(
         r"{
             a = 10;
@@ -127,10 +110,9 @@ fn hoisting() {
             var a;
         }",
         vec![
-            Assign::new(Identifier::new(a), Const::from(10)).into(),
-            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::new(a)).into(),
-            DeclarationList::Var(vec![Declaration::new_with_identifier(a, None)].into()).into(),
+            Assign::new(Identifier::from("a"), Const::from(10)).into(),
+            UnaryOp::new(op::UnaryOp::IncrementPost, Identifier::from("a")).into(),
+            DeclarationList::Var(vec![Declaration::new_with_identifier("a", None)].into()).into(),
         ],
-        &mut interner,
     );
 }

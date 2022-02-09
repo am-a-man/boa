@@ -10,15 +10,15 @@
 use crate::{
     profiler::BoaProfiler,
     syntax::{
-        ast::{
-            node::template::{TemplateElement, TemplateLit},
-            Position, Punctuator,
-        },
+        ast::node::template::{TemplateElement, TemplateLit},
+        ast::Position,
+        ast::Punctuator,
         lexer::TokenKind,
-        parser::{expression::Expression, AllowAwait, AllowYield, Cursor, ParseError, TokenParser},
+        parser::cursor::Cursor,
+        parser::expression::Expression,
+        parser::{AllowAwait, AllowYield, ParseError, TokenParser},
     },
 };
-use boa_interner::{Interner, Sym};
 use std::io::Read;
 
 /// Parses a template literal.
@@ -34,12 +34,12 @@ pub(super) struct TemplateLiteral {
     allow_yield: AllowYield,
     allow_await: AllowAwait,
     start: Position,
-    first: Sym,
+    first: String,
 }
 
 impl TemplateLiteral {
     /// Creates a new `TemplateLiteral` parser.
-    pub(super) fn new<Y, A>(allow_yield: Y, allow_await: A, start: Position, first: Sym) -> Self
+    pub(super) fn new<Y, A>(allow_yield: Y, allow_await: A, start: Position, first: &str) -> Self
     where
         Y: Into<AllowYield>,
         A: Into<AllowAwait>,
@@ -48,7 +48,7 @@ impl TemplateLiteral {
             allow_yield: allow_yield.into(),
             allow_await: allow_await.into(),
             start,
-            first,
+            first: first.to_owned(),
         }
     }
 }
@@ -59,48 +59,36 @@ where
 {
     type Output = TemplateLit;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("TemplateLiteral", "Parsing");
 
         let mut elements = vec![
-            TemplateElement::String(self.first),
+            TemplateElement::String(self.first.into_boxed_str()),
             TemplateElement::Expr(
-                Expression::new(true, self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?,
+                Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?,
             ),
         ];
         cursor.expect(
             TokenKind::Punctuator(Punctuator::CloseBlock),
             "template literal",
-            interner,
         )?;
 
         loop {
-            match cursor.lex_template(self.start, interner)?.kind() {
+            match cursor.lex_template(self.start)?.kind() {
                 TokenKind::TemplateMiddle(template_string) => {
-                    let cooked = template_string
-                        .to_owned_cooked(interner)
-                        .map_err(ParseError::lex)?;
+                    let cooked = template_string.to_owned_cooked().map_err(ParseError::lex)?;
 
                     elements.push(TemplateElement::String(cooked));
                     elements.push(TemplateElement::Expr(
-                        Expression::new(true, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                        Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?,
                     ));
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBlock),
                         "template literal",
-                        interner,
                     )?;
                 }
                 TokenKind::TemplateNoSubstitution(template_string) => {
-                    let cooked = template_string
-                        .to_owned_cooked(interner)
-                        .map_err(ParseError::lex)?;
+                    let cooked = template_string.to_owned_cooked().map_err(ParseError::lex)?;
 
                     elements.push(TemplateElement::String(cooked));
                     return Ok(TemplateLit::new(elements));

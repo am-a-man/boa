@@ -40,11 +40,8 @@ use self::{
     string::StringLiteral,
     template::TemplateLiteral,
 };
+use crate::syntax::ast::{Punctuator, Span};
 pub use crate::{profiler::BoaProfiler, syntax::ast::Position};
-use crate::{
-    syntax::ast::{Punctuator, Span},
-    Interner,
-};
 use core::convert::TryFrom;
 pub use error::Error;
 use std::io::Read;
@@ -52,12 +49,7 @@ pub use token::{Token, TokenKind};
 
 trait Tokenizer<R> {
     /// Lexes the next token.
-    fn lex(
-        &mut self,
-        cursor: &mut Cursor<R>,
-        start_pos: Position,
-        interner: &mut Interner,
-    ) -> Result<Token, Error>
+    fn lex(&mut self, cursor: &mut Cursor<R>, start_pos: Position) -> Result<Token, Error>
     where
         R: Read;
 }
@@ -128,11 +120,7 @@ impl<R> Lexer<R> {
     // that means it could be multiple different tokens depending on the input token.
     //
     // As per https://tc39.es/ecma262/#sec-ecmascript-language-lexical-grammar
-    pub(crate) fn lex_slash_token(
-        &mut self,
-        start: Position,
-        interner: &mut Interner,
-    ) -> Result<Token, Error>
+    pub(crate) fn lex_slash_token(&mut self, start: Position) -> Result<Token, Error>
     where
         R: Read,
     {
@@ -142,11 +130,11 @@ impl<R> Lexer<R> {
             match c {
                 b'/' => {
                     self.cursor.next_byte()?.expect("/ token vanished"); // Consume the '/'
-                    SingleLineComment.lex(&mut self.cursor, start, interner)
+                    SingleLineComment.lex(&mut self.cursor, start)
                 }
                 b'*' => {
                     self.cursor.next_byte()?.expect("* token vanished"); // Consume the '*'
-                    MultiLineComment.lex(&mut self.cursor, start, interner)
+                    MultiLineComment.lex(&mut self.cursor, start)
                 }
                 ch => {
                     match self.get_goal() {
@@ -169,7 +157,7 @@ impl<R> Lexer<R> {
                         }
                         InputElement::RegExp => {
                             // Can be a regular expression.
-                            RegexLiteral.lex(&mut self.cursor, start, interner)
+                            RegexLiteral.lex(&mut self.cursor, start)
                         }
                     }
                 }
@@ -185,7 +173,7 @@ impl<R> Lexer<R> {
     /// Retrieves the next token from the lexer.
     // We intentionally don't implement Iterator trait as Result<Option> is cleaner to handle.
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self, interner: &mut Interner) -> Result<Option<Token>, Error>
+    pub fn next(&mut self) -> Result<Option<Token>, Error>
     where
         R: Read,
     {
@@ -208,8 +196,8 @@ impl<R> Lexer<R> {
         if start.column_number() == 1 && start.line_number() == 1 && next_ch == 0x23 {
             if let Some(hashbang_peek) = self.cursor.peek()? {
                 if hashbang_peek == 0x21 {
-                    let _token = HashbangComment.lex(&mut self.cursor, start, interner);
-                    return self.next(interner);
+                    let _token = HashbangComment.lex(&mut self.cursor, start);
+                    return self.next();
                 }
             }
         };
@@ -220,8 +208,8 @@ impl<R> Lexer<R> {
                     TokenKind::LineTerminator,
                     Span::new(start, self.cursor.pos()),
                 )),
-                '"' | '\'' => StringLiteral::new(c).lex(&mut self.cursor, start, interner),
-                '`' => TemplateLiteral.lex(&mut self.cursor, start, interner),
+                '"' | '\'' => StringLiteral::new(c).lex(&mut self.cursor, start),
+                '`' => TemplateLiteral.lex(&mut self.cursor, start),
                 ';' => Ok(Token::new(
                     Punctuator::Semicolon.into(),
                     Span::new(start, self.cursor.pos()),
@@ -232,9 +220,9 @@ impl<R> Lexer<R> {
                 )),
                 '.' => {
                     if self.cursor.peek()?.map(|c| (b'0'..=b'9').contains(&c)) == Some(true) {
-                        NumberLiteral::new(next_ch as u8).lex(&mut self.cursor, start, interner)
+                        NumberLiteral::new(next_ch as u8).lex(&mut self.cursor, start)
                     } else {
-                        SpreadLiteral::new().lex(&mut self.cursor, start, interner)
+                        SpreadLiteral::new().lex(&mut self.cursor, start)
                     }
                 }
                 '(' => Ok(Token::new(
@@ -265,18 +253,18 @@ impl<R> Lexer<R> {
                     Punctuator::CloseBracket.into(),
                     Span::new(start, self.cursor.pos()),
                 )),
-                '/' => self.lex_slash_token(start, interner),
+                '/' => self.lex_slash_token(start),
                 '=' | '*' | '+' | '-' | '%' | '|' | '&' | '^' | '<' | '>' | '!' | '~' | '?' => {
-                    Operator::new(next_ch as u8).lex(&mut self.cursor, start, interner)
+                    Operator::new(next_ch as u8).lex(&mut self.cursor, start)
                 }
                 '\\' if self.cursor.peek()? == Some(b'u') => {
-                    Identifier::new(c).lex(&mut self.cursor, start, interner)
+                    Identifier::new(c).lex(&mut self.cursor, start)
                 }
                 _ if Identifier::is_identifier_start(c as u32) => {
-                    Identifier::new(c).lex(&mut self.cursor, start, interner)
+                    Identifier::new(c).lex(&mut self.cursor, start)
                 }
                 _ if c.is_digit(10) => {
-                    NumberLiteral::new(next_ch as u8).lex(&mut self.cursor, start, interner)
+                    NumberLiteral::new(next_ch as u8).lex(&mut self.cursor, start)
                 }
                 _ => {
                     let details = format!(
@@ -291,7 +279,7 @@ impl<R> Lexer<R> {
 
             if token.kind() == &TokenKind::Comment {
                 // Skip comment
-                self.next(interner)
+                self.next()
             } else {
                 Ok(Some(token))
             }
@@ -308,16 +296,11 @@ impl<R> Lexer<R> {
         }
     }
 
-    /// Performs the lexing of a template literal.
-    pub(crate) fn lex_template(
-        &mut self,
-        start: Position,
-        interner: &mut Interner,
-    ) -> Result<Token, Error>
+    pub(crate) fn lex_template(&mut self, start: Position) -> Result<Token, Error>
     where
         R: Read,
     {
-        TemplateLiteral.lex(&mut self.cursor, start, interner)
+        TemplateLiteral.lex(&mut self.cursor, start)
     }
 }
 

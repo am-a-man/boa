@@ -9,7 +9,6 @@ use crate::{
             ParseResult, TokenParser,
         },
     },
-    Interner,
 };
 use std::io::Read;
 
@@ -49,33 +48,31 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("TaggedTemplateLiteral", "Parsing");
 
         let mut raws = Vec::new();
         let mut cookeds = Vec::new();
         let mut exprs = Vec::new();
 
-        let mut token = cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?;
+        let mut token = cursor.next()?.ok_or(ParseError::AbruptEnd)?;
 
         loop {
             match token.kind() {
                 TokenKind::TemplateMiddle(template_string) => {
-                    raws.push(template_string.as_raw());
-                    cookeds.push(template_string.to_owned_cooked(interner).ok());
+                    raws.push(template_string.as_raw().to_owned().into_boxed_str());
+                    cookeds.push(template_string.to_owned_cooked().ok());
                     exprs.push(
-                        Expression::new(true, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                        Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?,
                     );
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBlock),
                         "template literal",
-                        interner,
                     )?;
                 }
                 TokenKind::TemplateNoSubstitution(template_string) => {
-                    raws.push(template_string.as_raw());
-                    cookeds.push(template_string.to_owned_cooked(interner).ok());
+                    raws.push(template_string.as_raw().to_owned().into_boxed_str());
+                    cookeds.push(template_string.to_owned_cooked().ok());
                     return Ok(Node::from(TaggedTemplate::new(
                         self.tag, raws, cookeds, exprs,
                     )));
@@ -87,7 +84,7 @@ where
                     ))
                 }
             }
-            token = cursor.lex_template(self.start, interner)?;
+            token = cursor.lex_template(self.start)?;
         }
     }
 }

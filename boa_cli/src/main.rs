@@ -1,24 +1,20 @@
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/boa-dev/boa/main/assets/logo.svg"
-)]
 #![deny(
+    unused_qualifications,
     clippy::all,
     unused_qualifications,
     unused_import_braces,
     unused_lifetimes,
     unreachable_pub,
     trivial_numeric_casts,
-    // rustdoc,
+    rustdoc::all,
     missing_debug_implementations,
     missing_copy_implementations,
     deprecated_in_future,
-    meta_variable_misuse,
     non_ascii_idents,
     rust_2018_compatibility,
     rust_2018_idioms,
     future_incompatible,
-    nonstandard_style,
+    nonstandard_style
 )]
 #![warn(clippy::perf, clippy::single_match_else, clippy::dbg_macro)]
 #![allow(
@@ -26,12 +22,10 @@
     clippy::cognitive_complexity,
     clippy::must_use_candidate,
     clippy::missing_errors_doc,
-    clippy::as_conversions,
-    clippy::let_unit_value,
-    rustdoc::missing_doc_code_examples
+    clippy::as_conversions
 )]
 
-use boa::{syntax::ast::node::StatementList, Context, Interner};
+use boa::{syntax::ast::node::StatementList, Context};
 use colored::*;
 use rustyline::{config::Config, error::ReadlineError, EditMode, Editor};
 use std::{fs::read, path::PathBuf};
@@ -73,6 +67,7 @@ struct Opt {
     dump_ast: Option<Option<DumpFormat>>,
 
     /// Dump the AST to stdout with the given format.
+    #[cfg(feature = "vm")]
     #[structopt(long = "trace", short = "t")]
     trace: bool,
 
@@ -114,15 +109,12 @@ arg_enum! {
 ///
 /// Returns a error of type String with a message,
 /// if the token stream has a parsing error.
-fn parse_tokens<S>(src: S, interner: &mut Interner) -> Result<StatementList, String>
-where
-    S: AsRef<[u8]>,
-{
+fn parse_tokens<T: AsRef<[u8]>>(src: T) -> Result<StatementList, String> {
     use boa::syntax::parser::Parser;
 
-    let src_bytes = src.as_ref();
+    let src_bytes: &[u8] = src.as_ref();
     Parser::new(src_bytes, false)
-        .parse_all(interner)
+        .parse_all()
         .map_err(|e| format!("ParsingError: {}", e))
 }
 
@@ -130,13 +122,10 @@ where
 ///
 /// Returns a error of type String with a error message,
 /// if the source has a syntax or parsing error.
-fn dump<S>(src: S, args: &Opt) -> Result<(), String>
-where
-    S: AsRef<[u8]>,
-{
+fn dump<T: AsRef<[u8]>>(src: T, args: &Opt) -> Result<(), String> {
+    let src_bytes: &[u8] = src.as_ref();
     if let Some(ref arg) = args.dump_ast {
-        let mut interner = Interner::default();
-        let ast = parse_tokens(src, &mut interner)?;
+        let ast = parse_tokens(src_bytes)?;
 
         match arg {
             Some(format) => match format {
@@ -157,9 +146,10 @@ where
 pub fn main() -> Result<(), std::io::Error> {
     let args = Opt::from_args();
 
-    let mut context = Context::default();
+    let mut context = Context::new();
 
     // Trace Output
+    #[cfg(feature = "vm")]
     context.set_trace(args.trace);
 
     for file in &args.files {

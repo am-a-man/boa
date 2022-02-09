@@ -100,7 +100,9 @@ pub(crate) fn proxy_exotic_get_prototype_of(
     let handler_proto = match &handler_proto {
         JsValue::Object(obj) => Some(obj.clone()),
         JsValue::Null => None,
-        _ => return context.throw_type_error("Proxy trap result is neither object nor null"),
+        _ => {
+            return Err(context.construct_type_error("Proxy trap result is neither object nor null"))
+        }
     };
 
     // 9. Let extensibleTarget be ? IsExtensible(target).
@@ -114,7 +116,7 @@ pub(crate) fn proxy_exotic_get_prototype_of(
 
     // 12. If SameValue(handlerProto, targetProto) is false, throw a TypeError exception.
     if handler_proto != target_proto {
-        return context.throw_type_error("Proxy trap returned unexpected prototype");
+        return Err(context.construct_type_error("Proxy trap returned unexpected prototype"));
     }
 
     // 13. Return handlerProto.
@@ -179,7 +181,7 @@ pub(crate) fn proxy_exotic_set_prototype_of(
 
     // 12. If SameValue(V, targetProto) is false, throw a TypeError exception.
     if val != target_proto {
-        return context.throw_type_error("Proxy trap failed to set prototype");
+        return Err(context.construct_type_error("Proxy trap failed to set prototype"));
     }
 
     // 13. Return true.
@@ -223,7 +225,7 @@ pub(crate) fn proxy_exotic_is_extensible(obj: &JsObject, context: &mut Context) 
 
     // 9. If SameValue(booleanTrapResult, targetResult) is false, throw a TypeError exception.
     if boolean_trap_result != target_result {
-        return context.throw_type_error("Proxy trap returned unexpected extensible value");
+        return Err(context.construct_type_error("Proxy trap returned unexpected extensible value"));
     }
 
     // 10. Return booleanTrapResult.
@@ -269,7 +271,7 @@ pub(crate) fn proxy_exotic_prevent_extensions(
     if boolean_trap_result && target.is_extensible(context)? {
         // a. Let extensibleTarget be ? IsExtensible(target).
         // b. If extensibleTarget is true, throw a TypeError exception.
-        return context.throw_type_error("Proxy trap failed to set extensible");
+        return Err(context.construct_type_error("Proxy trap failed to set extensible"));
     }
 
     // 9. Return booleanTrapResult.
@@ -316,7 +318,9 @@ pub(crate) fn proxy_exotic_get_own_property(
 
     // 8. If Type(trapResultObj) is neither Object nor Undefined, throw a TypeError exception.
     if !trap_result_obj.is_object() && !trap_result_obj.is_undefined() {
-        return context.throw_type_error("Proxy trap result is neither object nor undefined");
+        return Err(
+            context.construct_type_error("Proxy trap result is neither object nor undefined")
+        );
     }
 
     // 9. Let targetDesc be ? target.[[GetOwnProperty]](P).
@@ -327,17 +331,17 @@ pub(crate) fn proxy_exotic_get_own_property(
         if let Some(desc) = target_desc {
             // b. If targetDesc.[[Configurable]] is false, throw a TypeError exception.
             if !desc.expect_configurable() {
-                return context.throw_type_error(
+                return Err(context.construct_type_error(
                     "Proxy trap result is undefined adn target result is not configurable",
-                );
+                ));
             }
 
             // c. Let extensibleTarget be ? IsExtensible(target).
             // d. If extensibleTarget is false, throw a TypeError exception.
             if !target.is_extensible(context)? {
-                return context.throw_type_error(
+                return Err(context.construct_type_error(
                     "Proxy trap result is undefined and target is not extensible",
-                );
+                ));
             // e. Return undefined.
             } else {
                 return Ok(None);
@@ -364,7 +368,7 @@ pub(crate) fn proxy_exotic_get_own_property(
         result_desc.clone(),
         target_desc.clone(),
     ) {
-        return context.throw_type_error("Proxy trap returned unexpected property");
+        return Err(context.construct_type_error("Proxy trap returned unexpected property"));
     }
 
     // 16. If resultDesc.[[Configurable]] is false, then
@@ -376,17 +380,17 @@ pub(crate) fn proxy_exotic_get_own_property(
                 if let Some(false) = result_desc.writable() {
                     // i. If targetDesc.[[Writable]] is true, throw a TypeError exception.
                     if desc.expect_writable() {
-                        return
-                            context.throw_type_error("Proxy trap result is writable and not configurable while target result is not configurable")
-                        ;
+                        return Err(
+                            context.construct_type_error("Proxy trap result is writable and not configurable while target result is not configurable")
+                        );
                     }
                 }
             }
             // i. Throw a TypeError exception.
             _ => {
-                return context.throw_type_error(
+                return Err(context.construct_type_error(
                     "Proxy trap result is not configurable and target result is undefined",
-                )
+                ))
             }
         }
     }
@@ -457,12 +461,12 @@ pub(crate) fn proxy_exotic_define_own_property(
         None => {
             // a. If extensibleTarget is false, throw a TypeError exception.
             if !extensible_target {
-                return context.throw_type_error("Proxy trap failed to set property");
+                return Err(context.construct_type_error("Proxy trap failed to set property"));
             }
 
             // b. If settingConfigFalse is true, throw a TypeError exception.
             if setting_config_false {
-                return context.throw_type_error("Proxy trap failed to set property");
+                return Err(context.construct_type_error("Proxy trap failed to set property"));
             }
         }
         // 15. Else,
@@ -473,14 +477,16 @@ pub(crate) fn proxy_exotic_define_own_property(
                 desc.clone(),
                 Some(target_desc.clone()),
             ) {
-                return context.throw_type_error("Proxy trap set property to unexpected value");
+                return Err(
+                    context.construct_type_error("Proxy trap set property to unexpected value")
+                );
             }
 
             // b. If settingConfigFalse is true and targetDesc.[[Configurable]] is true, throw a TypeError exception.
             if setting_config_false && target_desc.expect_configurable() {
-                return context.throw_type_error(
+                return Err(context.construct_type_error(
                     "Proxy trap set property with unexpected configurable field",
-                );
+                ));
             }
 
             // c. If IsDataDescriptor(targetDesc) is true, targetDesc.[[Configurable]] is false, and targetDesc.[[Writable]] is true, then
@@ -491,9 +497,9 @@ pub(crate) fn proxy_exotic_define_own_property(
                 // i. If Desc has a [[Writable]] field and Desc.[[Writable]] is false, throw a TypeError exception.
                 if let Some(writable) = desc.writable() {
                     if !writable {
-                        return context.throw_type_error(
+                        return Err(context.construct_type_error(
                             "Proxy trap set property with unexpected writable field",
-                        );
+                        ));
                     }
                 }
             }
@@ -553,13 +559,13 @@ pub(crate) fn proxy_exotic_has_property(
         if let Some(target_desc) = target_desc {
             // i. If targetDesc.[[Configurable]] is false, throw a TypeError exception.
             if !target_desc.expect_configurable() {
-                return context.throw_type_error("Proxy trap returned unexpected property");
+                return Err(context.construct_type_error("Proxy trap returned unexpected property"));
             }
 
             // ii. Let extensibleTarget be ? IsExtensible(target).
             // iii. If extensibleTarget is false, throw a TypeError exception.
             if !target.is_extensible(context)? {
-                return context.throw_type_error("Proxy trap returned unexpected property");
+                return Err(context.construct_type_error("Proxy trap returned unexpected property"));
             }
         }
     }
@@ -617,8 +623,8 @@ pub(crate) fn proxy_exotic_get(
             if target_desc.is_data_descriptor() && !target_desc.expect_writable() {
                 // i. If SameValue(trapResult, targetDesc.[[Value]]) is false, throw a TypeError exception.
                 if !JsValue::same_value(&trap_result, target_desc.expect_value()) {
-                    return context
-                        .throw_type_error("Proxy trap returned unexpected data descriptor");
+                    return Err(context
+                        .construct_type_error("Proxy trap returned unexpected data descriptor"));
                 }
             }
 
@@ -626,8 +632,9 @@ pub(crate) fn proxy_exotic_get(
             if target_desc.is_accessor_descriptor() && target_desc.expect_get().is_undefined() {
                 // i. If trapResult is not undefined, throw a TypeError exception.
                 if !trap_result.is_undefined() {
-                    return context
-                        .throw_type_error("Proxy trap returned unexpected accessor descriptor");
+                    return Err(context.construct_type_error(
+                        "Proxy trap returned unexpected accessor descriptor",
+                    ));
                 }
             }
         }
@@ -693,7 +700,9 @@ pub(crate) fn proxy_exotic_set(
             if target_desc.is_data_descriptor() && !target_desc.expect_writable() {
                 // i. If SameValue(V, targetDesc.[[Value]]) is false, throw a TypeError exception.
                 if !JsValue::same_value(&value, target_desc.expect_value()) {
-                    return context.throw_type_error("Proxy trap set unexpected data descriptor");
+                    return Err(
+                        context.construct_type_error("Proxy trap set unexpected data descriptor")
+                    );
                 }
             }
 
@@ -702,8 +711,9 @@ pub(crate) fn proxy_exotic_set(
                 // i. If targetDesc.[[Set]] is undefined, throw a TypeError exception.
                 match target_desc.set() {
                     None | Some(&JsValue::Undefined) => {
-                        return context
-                            .throw_type_error("Proxy trap set unexpected accessor descriptor");
+                        return Err(context.construct_type_error(
+                            "Proxy trap set unexpected accessor descriptor",
+                        ));
                     }
                     _ => {}
                 }
@@ -766,7 +776,7 @@ pub(crate) fn proxy_exotic_delete(
         // 11. If targetDesc.[[Configurable]] is false, throw a TypeError exception.
         Some(target_desc) => {
             if !target_desc.expect_configurable() {
-                return context.throw_type_error("Proxy trap failed to delete property");
+                return Err(context.construct_type_error("Proxy trap failed to delete property"));
             }
         }
     }
@@ -774,7 +784,7 @@ pub(crate) fn proxy_exotic_delete(
     // 12. Let extensibleTarget be ? IsExtensible(target).
     // 13. If extensibleTarget is false, throw a TypeError exception.
     if !target.is_extensible(context)? {
-        return context.throw_type_error("Proxy trap failed to delete property");
+        return Err(context.construct_type_error("Proxy trap failed to delete property"));
     }
 
     // 14. Return true.
@@ -825,17 +835,17 @@ pub(crate) fn proxy_exotic_own_property_keys(
         match value {
             JsValue::String(s) => {
                 if !unchecked_result_keys.insert(s.clone().into()) {
-                    return context.throw_type_error(
+                    return Err(context.construct_type_error(
                         "Proxy trap result contains duplicate string property keys",
-                    );
+                    ));
                 }
                 trap_result.push(s.clone().into())
             }
             JsValue::Symbol(s) => {
                 if !unchecked_result_keys.insert(s.clone().into()) {
-                    return context.throw_type_error(
+                    return Err(context.construct_type_error(
                         "Proxy trap result contains duplicate symbol property keys",
-                    );
+                    ));
                 }
                 trap_result.push(s.clone().into())
             }
@@ -885,9 +895,9 @@ pub(crate) fn proxy_exotic_own_property_keys(
         // a. If key is not an element of uncheckedResultKeys, throw a TypeError exception.
         // b. Remove key from uncheckedResultKeys.
         if !unchecked_result_keys.remove(&key) {
-            return context.throw_type_error(
+            return Err(context.construct_type_error(
                 "Proxy trap failed to return all non-configurable property keys",
-            );
+            ));
         }
     }
 
@@ -901,14 +911,15 @@ pub(crate) fn proxy_exotic_own_property_keys(
         // a. If key is not an element of uncheckedResultKeys, throw a TypeError exception.
         // b. Remove key from uncheckedResultKeys.
         if !unchecked_result_keys.remove(&key) {
-            return context
-                .throw_type_error("Proxy trap failed to return all configurable property keys");
+            return Err(context.construct_type_error(
+                "Proxy trap failed to return all configurable property keys",
+            ));
         }
     }
 
     // 22. If uncheckedResultKeys is not empty, throw a TypeError exception.
     if !unchecked_result_keys.is_empty() {
-        return context.throw_type_error("Proxy trap failed to return all property keys");
+        return Err(context.construct_type_error("Proxy trap failed to return all property keys"));
     }
 
     // 23. Return trapResult.
@@ -1003,7 +1014,9 @@ fn proxy_exotic_construct(
 
     // 10. If Type(newObj) is not Object, throw a TypeError exception.
     if !new_obj.is_object() {
-        return context.throw_type_error("Proxy trap constructor returned non-object value");
+        return Err(
+            context.construct_type_error("Proxy trap constructor returned non-object value")
+        );
     }
 
     // 11. Return newObj.

@@ -1,10 +1,12 @@
 //! Local identifier node.
 
 use crate::{
-    gc::{empty_trace, Finalize, Trace},
+    exec::Executable,
+    gc::{Finalize, Trace},
     syntax::ast::node::Node,
+    BoaProfiler, Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, Sym, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -26,36 +28,36 @@ use serde::{Deserialize, Serialize};
 /// [mdn]: https://developer.mozilla.org/en-US/docs/Glossary/Identifier
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "deser", serde(transparent))]
-#[derive(Debug, Clone, Copy, Finalize, PartialEq)]
+#[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct Identifier {
-    ident: Sym,
+    ident: Box<str>,
 }
 
-impl Identifier {
-    /// Creates a new identifier AST node.
-    pub fn new(ident: Sym) -> Self {
-        Self { ident }
-    }
-
-    /// Retrieves the identifier's string symbol in the interner.
-    pub fn sym(self) -> Sym {
-        self.ident
+impl Executable for Identifier {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let _timer = BoaProfiler::global().start_event("Identifier", "exec");
+        context.get_binding_value(self.as_ref())
     }
 }
 
-impl ToInternedString for Identifier {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        interner.resolve_expect(self.ident).to_owned()
+impl fmt::Display for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.ident, f)
     }
 }
 
-unsafe impl Trace for Identifier {
-    empty_trace!();
+impl AsRef<str> for Identifier {
+    fn as_ref(&self) -> &str {
+        &self.ident
+    }
 }
 
-impl From<Sym> for Identifier {
-    fn from(sym: Sym) -> Self {
-        Self { ident: sym }
+impl<T> From<T> for Identifier
+where
+    T: Into<Box<str>>,
+{
+    fn from(stm: T) -> Self {
+        Self { ident: stm.into() }
     }
 }
 

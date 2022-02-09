@@ -23,7 +23,7 @@ use crate::{
             AllowAwait, AllowYield, Cursor, ParseError, ParseResult, TokenParser,
         },
     },
-    BoaProfiler, Interner,
+    BoaProfiler,
 };
 
 use std::io::Read;
@@ -62,58 +62,54 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("CallExpression", "Parsing");
 
-        let token = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+        let token = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
         let mut lhs = if token.kind() == &TokenKind::Punctuator(Punctuator::OpenParen) {
-            let args =
-                Arguments::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
+            let args = Arguments::new(self.allow_yield, self.allow_await).parse(cursor)?;
             Node::from(Call::new(self.first_member_expr, args))
         } else {
-            let next_token = cursor.next(interner)?.expect("token vanished");
+            let next_token = cursor.next()?.expect("token vanished");
             return Err(ParseError::expected(
-                ["(".to_owned()],
-                next_token.to_string(interner),
-                next_token.span(),
+                vec![TokenKind::Punctuator(Punctuator::OpenParen)],
+                next_token,
                 "call expression",
             ));
         };
 
-        while let Some(tok) = cursor.peek(0, interner)? {
+        while let Some(tok) = cursor.peek(0)? {
             let token = tok.clone();
             match token.kind() {
                 TokenKind::Punctuator(Punctuator::OpenParen) => {
-                    let args = Arguments::new(self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
+                    let args = Arguments::new(self.allow_yield, self.allow_await).parse(cursor)?;
                     lhs = Node::from(Call::new(lhs, args));
                 }
                 TokenKind::Punctuator(Punctuator::Dot) => {
-                    cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?; // We move the parser forward.
+                    cursor.next()?.ok_or(ParseError::AbruptEnd)?; // We move the parser forward.
 
-                    match cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?.kind() {
+                    match &cursor.next()?.ok_or(ParseError::AbruptEnd)?.kind() {
                         TokenKind::Identifier(name) => {
-                            lhs = GetConstField::new(lhs, *name).into();
+                            lhs = GetConstField::new(lhs, name.clone()).into();
                         }
                         TokenKind::Keyword(kw) => {
-                            lhs = GetConstField::new(lhs, kw.to_sym(interner)).into();
+                            lhs = GetConstField::new(lhs, kw.to_string()).into();
                         }
                         _ => {
                             return Err(ParseError::expected(
-                                ["identifier".to_owned()],
-                                token.to_string(interner),
-                                token.span(),
+                                vec![TokenKind::identifier("identifier")],
+                                token,
                                 "call expression",
                             ));
                         }
                     }
                 }
                 TokenKind::Punctuator(Punctuator::OpenBracket) => {
-                    let _ = cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?; // We move the parser.
-                    let idx = Expression::new(true, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
-                    cursor.expect(Punctuator::CloseBracket, "call expression", interner)?;
+                    let _ = cursor.next()?.ok_or(ParseError::AbruptEnd)?; // We move the parser.
+                    let idx =
+                        Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?;
+                    cursor.expect(Punctuator::CloseBracket, "call expression")?;
                     lhs = GetField::new(lhs, idx).into();
                 }
                 TokenKind::TemplateNoSubstitution { .. } | TokenKind::TemplateMiddle { .. } => {
@@ -123,7 +119,7 @@ where
                         tok.span().start(),
                         lhs,
                     )
-                    .parse(cursor, interner)?;
+                    .parse(cursor)?;
                 }
                 _ => break,
             }

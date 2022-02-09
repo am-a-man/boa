@@ -1,8 +1,11 @@
+use super::Node;
 use crate::{
-    gc::{empty_trace, Finalize, Trace},
-    syntax::ast::Node,
+    exec::Executable,
+    exec::InterpreterState,
+    gc::{Finalize, Trace},
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, Sym, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -25,38 +28,46 @@ mod tests;
 /// [spec]: https://tc39.es/ecma262/#prod-BreakStatement
 /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/break
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, Finalize, PartialEq)]
+#[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct Break {
-    label: Option<Sym>,
+    label: Option<Box<str>>,
 }
 
 impl Break {
     /// Creates a `Break` AST node.
-    pub fn new<L>(label: L) -> Self
+    pub fn new<OL, L>(label: OL) -> Self
     where
-        L: Into<Option<Sym>>,
+        L: Into<Box<str>>,
+        OL: Into<Option<L>>,
     {
         Self {
-            label: label.into(),
+            label: label.into().map(L::into),
         }
     }
 
     /// Gets the label of the break statement, if any.
-    pub fn label(&self) -> Option<Sym> {
-        self.label
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_ref().map(Box::as_ref)
     }
 }
 
-unsafe impl Trace for Break {
-    empty_trace!();
+impl Executable for Break {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        context
+            .executor()
+            .set_current_state(InterpreterState::Break(self.label().map(Box::from)));
+
+        Ok(JsValue::undefined())
+    }
 }
 
-impl ToInternedString for Break {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        format!(
+impl fmt::Display for Break {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "break{}",
-            if let Some(label) = self.label {
-                format!(" {}", interner.resolve_expect(label))
+            if self.label().is_some() {
+                format!(" {}", self.label().as_ref().unwrap())
             } else {
                 String::new()
             }

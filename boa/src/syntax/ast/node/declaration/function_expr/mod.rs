@@ -1,13 +1,14 @@
 use crate::{
+    builtins::function::ThisMode,
+    exec::Executable,
     gc::{Finalize, Trace},
     syntax::ast::node::{join_nodes, FormalParameter, Node, StatementList},
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, Sym, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
-
-use super::block_to_string;
 
 /// The `function` expression defines a function with the specified parameters.
 ///
@@ -28,7 +29,7 @@ use super::block_to_string;
 #[cfg_attr(feature = "deser", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct FunctionExpr {
-    name: Option<Sym>,
+    name: Option<Box<str>>,
     parameters: Box<[FormalParameter]>,
     body: StatementList,
 }
@@ -37,7 +38,7 @@ impl FunctionExpr {
     /// Creates a new function expression
     pub(in crate::syntax) fn new<N, P, B>(name: N, parameters: P, body: B) -> Self
     where
-        N: Into<Option<Sym>>,
+        N: Into<Option<Box<str>>>,
         P: Into<Box<[FormalParameter]>>,
         B: Into<StatementList>,
     {
@@ -49,8 +50,8 @@ impl FunctionExpr {
     }
 
     /// Gets the name of the function declaration.
-    pub fn name(&self) -> Option<Sym> {
-        self.name
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_ref().map(Box::as_ref)
     }
 
     /// Gets the list of parameters of the function declaration.
@@ -64,28 +65,55 @@ impl FunctionExpr {
     }
 
     /// Implements the display formatting with indentation.
-    pub(in crate::syntax::ast::node) fn to_indented_string(
+    pub(in crate::syntax::ast::node) fn display(
         &self,
-        interner: &Interner,
+        f: &mut fmt::Formatter<'_>,
         indentation: usize,
-    ) -> String {
-        let mut buf = "function".to_owned();
-        if let Some(name) = self.name {
-            buf.push_str(&format!(" {}", interner.resolve_expect(name)));
+    ) -> fmt::Result {
+        f.write_str("function")?;
+        if let Some(ref name) = self.name {
+            write!(f, " {}", name)?;
         }
-        buf.push_str(&format!(
-            "({}) {}",
-            join_nodes(interner, &self.parameters),
-            block_to_string(&self.body, interner, indentation)
-        ));
+        f.write_str("(")?;
+        join_nodes(f, &self.parameters)?;
+        f.write_str(") ")?;
+        self.display_block(f, indentation)
+    }
 
-        buf
+    /// Displays the function's body. This includes the curly braces at the start and end.
+    /// This will not indent the first brace, but will indent the last brace.
+    pub(in crate::syntax::ast::node) fn display_block(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        indentation: usize,
+    ) -> fmt::Result {
+        if self.body().items().is_empty() {
+            f.write_str("{}")
+        } else {
+            f.write_str("{\n")?;
+            self.body.display(f, indentation + 1)?;
+            write!(f, "{}}}", "    ".repeat(indentation))
+        }
     }
 }
 
-impl ToInternedString for FunctionExpr {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        self.to_indented_string(interner, 0)
+impl Executable for FunctionExpr {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let val = context.create_function(
+            self.name().unwrap_or(""),
+            self.parameters().to_vec(),
+            self.body().clone(),
+            true,
+            ThisMode::Global,
+        )?;
+
+        Ok(val)
+    }
+}
+
+impl fmt::Display for FunctionExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display(f, 0)
     }
 }
 

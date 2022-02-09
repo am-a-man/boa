@@ -15,13 +15,14 @@
 //! [section]: https://tc39.es/ecma262/#sec-property-attributes
 
 use crate::{
-    gc::{empty_trace, Finalize, Trace},
+    gc::{Finalize, Trace},
     JsString, JsSymbol, JsValue,
 };
 use std::{convert::TryFrom, fmt};
 
 mod attribute;
 pub use attribute::Attribute;
+use gc::unsafe_empty_trace;
 
 /// This represents a JavaScript Property AKA The Property Descriptor.
 ///
@@ -671,5 +672,5 @@ pub(crate) enum PropertyNameKind {
 }
 
 unsafe impl Trace for PropertyNameKind {
-    empty_trace!();
+    unsafe_empty_trace!();
 }

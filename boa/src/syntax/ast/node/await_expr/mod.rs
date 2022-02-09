@@ -1,8 +1,9 @@
 //! Await expression node.
 
 use super::Node;
-use crate::gc::{Finalize, Trace};
-use boa_interner::{Interner, ToInternedString};
+use crate::{exec::Executable, BoaProfiler, Context, JsResult, JsValue};
+use gc::{Finalize, Trace};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,14 @@ pub struct AwaitExpr {
     expr: Box<Node>,
 }
 
+impl Executable for AwaitExpr {
+    fn run(&self, _: &mut Context) -> JsResult<JsValue> {
+        let _timer = BoaProfiler::global().start_event("AwaitExpression", "exec");
+        // TODO: Implement AwaitExpr
+        Ok(JsValue::undefined())
+    }
+}
+
 impl<T> From<T> for AwaitExpr
 where
     T: Into<Box<Node>>,
@@ -34,9 +43,10 @@ where
     }
 }
 
-impl ToInternedString for AwaitExpr {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        format!("await {}", self.expr.to_indented_string(interner, 0))
+impl fmt::Display for AwaitExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "await ")?;
+        self.expr.display(f, 0)
     }
 }
 

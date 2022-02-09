@@ -29,33 +29,39 @@ use self::{
     expression::ExpressionStatement,
     if_stm::IfStatement,
     iteration::{DoWhileStatement, ForStatement, WhileStatement},
-    labelled_stm::LabelledStatement,
     return_stm::ReturnStatement,
     switch::SwitchStatement,
     throw::ThrowStatement,
     try_stm::TryStatement,
     variable::VariableStatement,
 };
+use crate::syntax::{
+    ast::node::declaration::{
+        DeclarationPattern, DeclarationPatternArray, DeclarationPatternObject,
+    },
+    parser::expression::Initializer,
+};
+
 use super::{AllowAwait, AllowIn, AllowReturn, AllowYield, Cursor, ParseError, TokenParser};
+
 use crate::{
     syntax::{
         ast::{
             node::{
                 self,
-                declaration::{
-                    BindingPatternTypeArray, BindingPatternTypeObject, DeclarationPattern,
-                    DeclarationPatternArray, DeclarationPatternObject,
-                },
+                declaration::{BindingPatternTypeArray, BindingPatternTypeObject},
             },
             Keyword, Node, Punctuator,
         },
         lexer::{Error as LexError, InputElement, Position, TokenKind},
-        parser::expression::{await_expr::AwaitExpression, Initializer},
+        parser::expression::await_expr::AwaitExpression,
     },
     BoaProfiler,
 };
-use boa_interner::{Interner, Sym};
-use std::{collections::HashSet, io::Read, vec};
+use labelled_stm::LabelledStatement;
+
+use std::io::Read;
+use std::{collections::HashSet, vec};
 
 /// Statement parsing.
 ///
@@ -112,96 +118,88 @@ where
 {
     type Output = Node;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("Statement", "Parsing");
         // TODO: add BreakableStatement and divide Whiles, fors and so on to another place.
-        let tok = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+        let tok = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
         match tok.kind() {
             TokenKind::Keyword(Keyword::Await) => AwaitExpression::new(self.allow_yield)
-                .parse(cursor, interner)
+                .parse(cursor)
                 .map(Node::from),
             TokenKind::Keyword(Keyword::If) => {
                 IfStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Var) => {
                 VariableStatement::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::While) => {
                 WhileStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Do) => {
                 DoWhileStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::For) => {
                 ForStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Return) => {
                 if self.allow_return.0 {
                     ReturnStatement::new(self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)
+                        .parse(cursor)
                         .map(Node::from)
                 } else {
-                    Err(ParseError::unexpected(
-                        tok.to_string(interner),
-                        tok.span(),
-                        "statement",
-                    ))
+                    Err(ParseError::unexpected(tok.clone(), "statement"))
                 }
             }
             TokenKind::Keyword(Keyword::Break) => {
                 BreakStatement::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Continue) => {
                 ContinueStatement::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Try) => {
                 TryStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Throw) => {
                 ThrowStatement::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Keyword(Keyword::Switch) => {
                 SwitchStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 BlockStatement::new(self.allow_yield, self.allow_await, self.allow_return)
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from)
             }
             TokenKind::Punctuator(Punctuator::Semicolon) => {
                 // parse the EmptyStatement
-                cursor.next(interner).expect("semicolon disappeared");
+                cursor.next().expect("semicolon disappeared");
                 Ok(Node::Empty)
             }
             TokenKind::Identifier(_) => {
                 // Labelled Statement check
                 cursor.set_goal(InputElement::Div);
-                let tok = cursor.peek(1, interner)?;
+                let tok = cursor.peek(1)?;
                 if tok.is_some()
                     && matches!(
                         tok.unwrap().kind(),
@@ -213,16 +211,14 @@ where
                         self.allow_await,
                         self.allow_return,
                     )
-                    .parse(cursor, interner)
+                    .parse(cursor)
                     .map(Node::from);
                 }
 
-                ExpressionStatement::new(self.allow_yield, self.allow_await).parse(cursor, interner)
+                ExpressionStatement::new(self.allow_yield, self.allow_await).parse(cursor)
             }
 
-            _ => {
-                ExpressionStatement::new(self.allow_yield, self.allow_await).parse(cursor, interner)
-            }
+            _ => ExpressionStatement::new(self.allow_yield, self.allow_await).parse(cursor),
         }
     }
 }
@@ -282,16 +278,12 @@ where
     ///
     /// Note that the last token which causes the parse to finish is not
     /// consumed.
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("StatementList", "Parsing");
         let mut items = Vec::new();
 
         loop {
-            match cursor.peek(0, interner)? {
+            match cursor.peek(0)? {
                 Some(token) if self.break_nodes.contains(token.kind()) => break,
                 None => break,
                 _ => {}
@@ -303,18 +295,18 @@ where
                 self.allow_return,
                 self.in_block,
             )
-            .parse(cursor, interner)?;
+            .parse(cursor)?;
             items.push(item);
 
             // move the cursor forward for any consecutive semicolon.
-            while cursor.next_if(Punctuator::Semicolon, interner)?.is_some() {}
+            while cursor.next_if(Punctuator::Semicolon)?.is_some() {}
         }
 
         // Handle any redeclarations
         // https://tc39.es/ecma262/#sec-block-static-semantics-early-errors
         {
-            let mut lexically_declared_names: HashSet<Sym> = HashSet::new();
-            let mut var_declared_names: HashSet<Sym> = HashSet::new();
+            let mut lexically_declared_names: HashSet<&str> = HashSet::new();
+            let mut var_declared_names: HashSet<&str> = HashSet::new();
 
             // TODO: Use more helpful positions in errors when spans are added to Nodes
             for item in &items {
@@ -325,16 +317,16 @@ where
                             // LexicallyDeclaredNames, raise an error
                             match decl {
                                 node::Declaration::Identifier { ident, .. } => {
-                                    if var_declared_names.contains(&ident.sym())
-                                        || !lexically_declared_names.insert(ident.sym())
+                                    if var_declared_names.contains(ident.as_ref())
+                                        || !lexically_declared_names.insert(ident.as_ref())
                                     {
                                         return Err(ParseError::lex(LexError::Syntax(
                                             format!(
                                                 "Redeclaration of variable `{}`",
-                                                interner.resolve_expect(ident.sym())
+                                                ident.as_ref()
                                             )
                                             .into(),
-                                            match cursor.peek(0, interner)? {
+                                            match cursor.peek(0)? {
                                                 Some(token) => token.span().end(),
                                                 None => Position::new(1, 1),
                                             },
@@ -343,16 +335,13 @@ where
                                 }
                                 node::Declaration::Pattern(p) => {
                                     for ident in p.idents() {
-                                        if var_declared_names.contains(&ident)
-                                            || !lexically_declared_names.insert(ident)
+                                        if var_declared_names.contains(ident)
+                                            || !lexically_declared_names.insert(ident.as_ref())
                                         {
                                             return Err(ParseError::lex(LexError::Syntax(
-                                                format!(
-                                                    "Redeclaration of variable `{}`",
-                                                    interner.resolve_expect(ident)
-                                                )
-                                                .into(),
-                                                match cursor.peek(0, interner)? {
+                                                format!("Redeclaration of variable `{}`", ident)
+                                                    .into(),
+                                                match cursor.peek(0)? {
                                                     Some(token) => token.span().end(),
                                                     None => Position::new(1, 1),
                                                 },
@@ -368,40 +357,37 @@ where
                             match decl {
                                 node::Declaration::Identifier { ident, .. } => {
                                     // if name in LexicallyDeclaredNames, raise an error
-                                    if lexically_declared_names.contains(&ident.sym()) {
+                                    if lexically_declared_names.contains(ident.as_ref()) {
                                         return Err(ParseError::lex(LexError::Syntax(
                                             format!(
                                                 "Redeclaration of variable `{}`",
-                                                interner.resolve_expect(ident.sym())
+                                                ident.as_ref()
                                             )
                                             .into(),
-                                            match cursor.peek(0, interner)? {
+                                            match cursor.peek(0)? {
                                                 Some(token) => token.span().end(),
                                                 None => Position::new(1, 1),
                                             },
                                         )));
                                     }
                                     // otherwise, add to VarDeclaredNames
-                                    var_declared_names.insert(ident.sym());
+                                    var_declared_names.insert(ident.as_ref());
                                 }
                                 node::Declaration::Pattern(p) => {
                                     for ident in p.idents() {
                                         // if name in LexicallyDeclaredNames, raise an error
-                                        if lexically_declared_names.contains(&ident) {
+                                        if lexically_declared_names.contains(ident) {
                                             return Err(ParseError::lex(LexError::Syntax(
-                                                format!(
-                                                    "Redeclaration of variable `{}`",
-                                                    interner.resolve_expect(ident)
-                                                )
-                                                .into(),
-                                                match cursor.peek(0, interner)? {
+                                                format!("Redeclaration of variable `{}`", ident)
+                                                    .into(),
+                                                match cursor.peek(0)? {
                                                     Some(token) => token.span().end(),
                                                     None => Position::new(1, 1),
                                                 },
                                             )));
                                         }
                                         // otherwise, add to VarDeclaredNames
-                                        var_declared_names.insert(ident);
+                                        var_declared_names.insert(ident.as_ref());
                                     }
                                 }
                             }
@@ -459,14 +445,10 @@ where
 {
     type Output = Node;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("StatementListItem", "Parsing");
         let strict_mode = cursor.strict_mode();
-        let tok = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+        let tok = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
         match *tok.kind() {
             TokenKind::Keyword(Keyword::Function) | TokenKind::Keyword(Keyword::Async) => {
@@ -476,13 +458,14 @@ where
                         tok.span().start(),
                     )));
                 }
-                Declaration::new(self.allow_yield, self.allow_await, true).parse(cursor, interner)
+                Declaration::new(self.allow_yield, self.allow_await, true).parse(cursor)
             }
             TokenKind::Keyword(Keyword::Const) | TokenKind::Keyword(Keyword::Let) => {
-                Declaration::new(self.allow_yield, self.allow_await, true).parse(cursor, interner)
+                Declaration::new(self.allow_yield, self.allow_await, true).parse(cursor)
             }
-            _ => Statement::new(self.allow_yield, self.allow_await, self.allow_return)
-                .parse(cursor, interner),
+            _ => {
+                Statement::new(self.allow_yield, self.allow_await, self.allow_return).parse(cursor)
+            }
         }
     }
 }
@@ -527,20 +510,16 @@ impl<R> TokenParser<R> for BindingIdentifier
 where
     R: Read,
 {
-    type Output = Sym;
+    type Output = Box<str>;
 
     /// Strict mode parsing as per <https://tc39.es/ecma262/#sec-identifiers-static-semantics-early-errors>.
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("BindingIdentifier", "Parsing");
 
-        let next_token = cursor.next(interner)?.ok_or(ParseError::AbruptEnd)?;
+        let next_token = cursor.next()?.ok_or(ParseError::AbruptEnd)?;
 
         match next_token.kind() {
-            TokenKind::Identifier(ref s) => Ok(*s),
+            TokenKind::Identifier(ref s) => Ok(s.clone()),
             TokenKind::Keyword(Keyword::Yield) if self.allow_yield.0 => {
                 // Early Error: It is a Syntax Error if this production has a [Yield] parameter and StringValue of Identifier is "yield".
                 Err(ParseError::general(
@@ -555,7 +534,7 @@ where
                         next_token.span().start(),
                     ))
                 } else {
-                    Ok(Sym::YIELD)
+                    Ok("yield".into())
                 }
             }
             TokenKind::Keyword(Keyword::Await) if self.allow_await.0 => {
@@ -572,13 +551,12 @@ where
                         next_token.span().start(),
                     ))
                 } else {
-                    Ok(Sym::AWAIT)
+                    Ok("await".into())
                 }
             }
             _ => Err(ParseError::expected(
-                ["identifier".to_owned()],
-                next_token.to_string(interner),
-                next_token.span(),
+                vec![TokenKind::identifier("identifier")],
+                next_token,
                 "binding identifier",
             )),
         }
@@ -620,17 +598,12 @@ where
 {
     type Output = Vec<BindingPatternTypeObject>;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("ObjectBindingPattern", "Parsing");
 
         cursor.expect(
             TokenKind::Punctuator(Punctuator::OpenBlock),
             "object binding pattern",
-            interner,
         )?;
 
         let mut patterns = Vec::new();
@@ -638,16 +611,11 @@ where
         let mut rest_property_name = None;
 
         loop {
-            let property_name = match cursor
-                .peek(0, interner)?
-                .ok_or(ParseError::AbruptEnd)?
-                .kind()
-            {
+            let property_name = match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                 TokenKind::Punctuator(Punctuator::CloseBlock) => {
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBlock),
                         "object binding pattern",
-                        interner,
                     )?;
                     break;
                 }
@@ -655,33 +623,29 @@ where
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::Spread),
                         "object binding pattern",
-                        interner,
                     )?;
                     rest_property_name = Some(
-                        BindingIdentifier::new(self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                        BindingIdentifier::new(self.allow_yield, self.allow_await).parse(cursor)?,
                     );
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBlock),
                         "object binding pattern",
-                        interner,
                     )?;
                     break;
                 }
-                _ => BindingIdentifier::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?,
+                _ => BindingIdentifier::new(self.allow_yield, self.allow_await).parse(cursor)?,
             };
 
-            property_names.push(property_name);
+            property_names.push(property_name.clone());
 
-            if let Some(peek_token) = cursor.peek(0, interner)? {
+            if let Some(peek_token) = cursor.peek(0)? {
                 match peek_token.kind() {
                     TokenKind::Punctuator(Punctuator::Assign) => {
                         let init =
                             Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?;
+                                .parse(cursor)?;
                         patterns.push(BindingPatternTypeObject::SingleName {
-                            ident: property_name,
+                            ident: property_name.clone(),
                             property_name,
                             default_init: Some(init),
                         });
@@ -690,10 +654,9 @@ where
                         cursor.expect(
                             TokenKind::Punctuator(Punctuator::Colon),
                             "object binding pattern",
-                            interner,
                         )?;
 
-                        if let Some(peek_token) = cursor.peek(0, interner)? {
+                        if let Some(peek_token) = cursor.peek(0)? {
                             match peek_token.kind() {
                                 TokenKind::Punctuator(Punctuator::OpenBlock) => {
                                     let bindings = ObjectBindingPattern::new(
@@ -701,9 +664,9 @@ where
                                         self.allow_yield,
                                         self.allow_await,
                                     )
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
 
-                                    if let Some(peek_token) = cursor.peek(0, interner)? {
+                                    if let Some(peek_token) = cursor.peek(0)? {
                                         match peek_token.kind() {
                                             TokenKind::Punctuator(Punctuator::Assign) => {
                                                 let init = Initializer::new(
@@ -711,7 +674,7 @@ where
                                                     self.allow_yield,
                                                     self.allow_await,
                                                 )
-                                                .parse(cursor, interner)?;
+                                                .parse(cursor)?;
                                                 patterns.push(
                                                     BindingPatternTypeObject::BindingPattern {
                                                         ident: property_name,
@@ -746,9 +709,9 @@ where
                                         self.allow_yield,
                                         self.allow_await,
                                     )
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
 
-                                    if let Some(peek_token) = cursor.peek(0, interner)? {
+                                    if let Some(peek_token) = cursor.peek(0)? {
                                         match peek_token.kind() {
                                             TokenKind::Punctuator(Punctuator::Assign) => {
                                                 let init = Initializer::new(
@@ -756,7 +719,7 @@ where
                                                     self.allow_yield,
                                                     self.allow_await,
                                                 )
-                                                .parse(cursor, interner)?;
+                                                .parse(cursor)?;
                                                 patterns.push(
                                                     BindingPatternTypeObject::BindingPattern {
                                                         ident: property_name,
@@ -790,9 +753,9 @@ where
                                     //       Should parse https://tc39.es/ecma262/#prod-PropertyName
                                     let ident =
                                         BindingIdentifier::new(self.allow_yield, self.allow_await)
-                                            .parse(cursor, interner)?;
+                                            .parse(cursor)?;
 
-                                    if let Some(peek_token) = cursor.peek(0, interner)? {
+                                    if let Some(peek_token) = cursor.peek(0)? {
                                         match peek_token.kind() {
                                             TokenKind::Punctuator(Punctuator::Assign) => {
                                                 let init = Initializer::new(
@@ -800,7 +763,7 @@ where
                                                     self.allow_yield,
                                                     self.allow_await,
                                                 )
-                                                .parse(cursor, interner)?;
+                                                .parse(cursor)?;
                                                 patterns.push(
                                                     BindingPatternTypeObject::SingleName {
                                                         ident,
@@ -826,7 +789,7 @@ where
                     }
                     _ => {
                         patterns.push(BindingPatternTypeObject::SingleName {
-                            ident: property_name,
+                            ident: property_name.clone(),
                             property_name,
                             default_init: None,
                         });
@@ -834,12 +797,11 @@ where
                 }
             }
 
-            if let Some(peek_token) = cursor.peek(0, interner)? {
+            if let Some(peek_token) = cursor.peek(0)? {
                 if let TokenKind::Punctuator(Punctuator::Comma) = peek_token.kind() {
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::Comma),
                         "object binding pattern",
-                        interner,
                     )?;
                 }
             }
@@ -901,33 +863,23 @@ where
 {
     type Output = Vec<BindingPatternTypeArray>;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("ArrayBindingPattern", "Parsing");
 
         cursor.expect(
             TokenKind::Punctuator(Punctuator::OpenBracket),
             "array binding pattern",
-            interner,
         )?;
 
         let mut patterns = Vec::new();
         let mut last_elision_or_first = true;
 
         loop {
-            match cursor
-                .peek(0, interner)?
-                .ok_or(ParseError::AbruptEnd)?
-                .kind()
-            {
+            match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                 TokenKind::Punctuator(Punctuator::CloseBracket) => {
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBracket),
                         "array binding pattern",
-                        interner,
                     )?;
                     break;
                 }
@@ -935,7 +887,6 @@ where
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::Comma),
                         "array binding pattern",
-                        interner,
                     )?;
                     if last_elision_or_first {
                         patterns.push(BindingPatternTypeArray::Elision);
@@ -948,21 +899,16 @@ where
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::Spread),
                         "array binding pattern",
-                        interner,
                     )?;
 
-                    match cursor
-                        .peek(0, interner)?
-                        .ok_or(ParseError::AbruptEnd)?
-                        .kind()
-                    {
+                    match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                         TokenKind::Punctuator(Punctuator::OpenBlock) => {
                             let bindings = ObjectBindingPattern::new(
                                 self.allow_in,
                                 self.allow_yield,
                                 self.allow_await,
                             )
-                            .parse(cursor, interner)?;
+                            .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::BindingPatternRest {
                                 pattern: DeclarationPattern::Object(DeclarationPatternObject::new(
                                     bindings, None,
@@ -975,7 +921,7 @@ where
                                 self.allow_yield,
                                 self.allow_await,
                             )
-                            .parse(cursor, interner)?;
+                            .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::BindingPatternRest {
                                 pattern: DeclarationPattern::Array(DeclarationPatternArray::new(
                                     bindings, None,
@@ -985,7 +931,7 @@ where
                         _ => {
                             let rest_property_name =
                                 BindingIdentifier::new(self.allow_yield, self.allow_await)
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::SingleNameRest {
                                 ident: rest_property_name,
                             });
@@ -995,7 +941,6 @@ where
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::CloseBracket),
                         "array binding pattern",
-                        interner,
                     )?;
                     break;
                 }
@@ -1007,17 +952,13 @@ where
                         self.allow_yield,
                         self.allow_await,
                     )
-                    .parse(cursor, interner)?;
+                    .parse(cursor)?;
 
-                    match cursor
-                        .peek(0, interner)?
-                        .ok_or(ParseError::AbruptEnd)?
-                        .kind()
-                    {
+                    match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                         TokenKind::Punctuator(Punctuator::Assign) => {
                             let default_init =
                                 Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::BindingPattern {
                                 pattern: DeclarationPattern::Object(DeclarationPatternObject::new(
                                     bindings,
@@ -1039,17 +980,13 @@ where
 
                     let bindings =
                         ArrayBindingPattern::new(self.allow_in, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?;
+                            .parse(cursor)?;
 
-                    match cursor
-                        .peek(0, interner)?
-                        .ok_or(ParseError::AbruptEnd)?
-                        .kind()
-                    {
+                    match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                         TokenKind::Punctuator(Punctuator::Assign) => {
                             let default_init =
                                 Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::BindingPattern {
                                 pattern: DeclarationPattern::Array(DeclarationPatternArray::new(
                                     bindings,
@@ -1069,17 +1006,13 @@ where
                 _ => {
                     last_elision_or_first = false;
 
-                    let ident = BindingIdentifier::new(self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
-                    match cursor
-                        .peek(0, interner)?
-                        .ok_or(ParseError::AbruptEnd)?
-                        .kind()
-                    {
+                    let ident =
+                        BindingIdentifier::new(self.allow_yield, self.allow_await).parse(cursor)?;
+                    match cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?.kind() {
                         TokenKind::Punctuator(Punctuator::Assign) => {
                             let default_init =
                                 Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                    .parse(cursor, interner)?;
+                                    .parse(cursor)?;
                             patterns.push(BindingPatternTypeArray::SingleName {
                                 ident,
                                 default_init: Some(default_init),
@@ -1095,12 +1028,11 @@ where
                 }
             }
 
-            if let Some(peek_token) = cursor.peek(0, interner)? {
+            if let Some(peek_token) = cursor.peek(0)? {
                 if let TokenKind::Punctuator(Punctuator::Comma) = peek_token.kind() {
                     cursor.expect(
                         TokenKind::Punctuator(Punctuator::Comma),
                         "array binding pattern",
-                        interner,
                     )?;
                     if last_elision_or_first {
                         patterns.push(BindingPatternTypeArray::Elision);

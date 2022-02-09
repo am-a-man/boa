@@ -8,9 +8,7 @@
 //!
 //! [spec]: https://tc39.es/ecma262/#prod-AsyncGeneratorExpression
 #[cfg(test)]
-mod tests;
-
-use boa_interner::Sym;
+mod test;
 
 use crate::{
     syntax::{
@@ -22,7 +20,7 @@ use crate::{
             Cursor, ParseError, TokenParser,
         },
     },
-    BoaProfiler, Interner,
+    BoaProfiler,
 };
 
 use std::io::Read;
@@ -43,25 +41,20 @@ where
     //The below needs to be implemented in ast::node
     type Output = AsyncGeneratorExpr;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("AsyncGeneratorExpression", "Parsing");
 
-        cursor.peek_expect_no_lineterminator(0, "async generator expression", interner)?;
-        cursor.expect(Keyword::Function, "async generator expression", interner)?;
+        cursor.peek_expect_no_lineterminator(0, "async generator expression")?;
+        cursor.expect(Keyword::Function, "async generator expression")?;
         cursor.expect(
             TokenKind::Punctuator(Punctuator::Mul),
             "async generator expression",
-            interner,
         )?;
 
-        let name = if let Some(token) = cursor.peek(0, interner)? {
+        let name = if let Some(token) = cursor.peek(0)? {
             match token.kind() {
                 TokenKind::Punctuator(Punctuator::OpenParen) => None,
-                _ => Some(BindingIdentifier::new(true, true).parse(cursor, interner)?),
+                _ => Some(BindingIdentifier::new(true, true).parse(cursor)?),
             }
         } else {
             return Err(ParseError::AbruptEnd);
@@ -69,11 +62,11 @@ where
 
         // Early Error: If BindingIdentifier is present and the source code matching BindingIdentifier is strict
         // mode code, it is a Syntax Error if the StringValue of BindingIdentifier is "eval" or "arguments".
-        if let Some(name) = name {
-            if cursor.strict_mode() && [Sym::EVAL, Sym::ARGUMENTS].contains(&name) {
+        if let Some(name) = &name {
+            if cursor.strict_mode() && ["eval", "arguments"].contains(&name.as_ref()) {
                 return Err(ParseError::lex(LexError::Syntax(
                     "Unexpected eval or arguments in strict mode".into(),
-                    match cursor.peek(0, interner)? {
+                    match cursor.peek(0)? {
                         Some(token) => token.span().end(),
                         None => Position::new(1, 1),
                     },
@@ -82,34 +75,18 @@ where
         }
 
         let params_start_position = cursor
-            .expect(
-                Punctuator::OpenParen,
-                "async generator expression",
-                interner,
-            )?
+            .expect(Punctuator::OpenParen, "async generator expression")?
             .span()
             .end();
 
-        let params = FormalParameters::new(true, true).parse(cursor, interner)?;
+        let params = FormalParameters::new(true, true).parse(cursor)?;
 
-        cursor.expect(
-            Punctuator::CloseParen,
-            "async generator expression",
-            interner,
-        )?;
-        cursor.expect(
-            Punctuator::OpenBlock,
-            "async generator expression",
-            interner,
-        )?;
+        cursor.expect(Punctuator::CloseParen, "async generator expression")?;
+        cursor.expect(Punctuator::OpenBlock, "async generator expression")?;
 
-        let body = FunctionBody::new(true, true).parse(cursor, interner)?;
+        let body = FunctionBody::new(true, true).parse(cursor)?;
 
-        cursor.expect(
-            Punctuator::CloseBlock,
-            "async generator expression",
-            interner,
-        )?;
+        cursor.expect(Punctuator::CloseBlock, "async generator expression")?;
 
         // Early Error: If the source code matching FormalParameters is strict mode code,
         // the Early Error rules for UniqueFormalParameters : FormalParameters are applied.
@@ -132,24 +109,13 @@ where
         // It is a Syntax Error if any element of the BoundNames of FormalParameters
         // also occurs in the LexicallyDeclaredNames of FunctionBody.
         {
-            let lexically_declared_names = body.lexically_declared_names(interner);
+            let lexically_declared_names = body.lexically_declared_names();
             for param in params.parameters.as_ref() {
                 for param_name in param.names() {
-<<<<<<< HEAD
                     if lexically_declared_names.contains(param_name) {
                         return Err(ParseError::lex(LexError::Syntax(
                             format!("Redeclaration of formal parameter `{}`", param_name).into(),
                             match cursor.peek(0)? {
-=======
-                    if lexically_declared_names.contains(&param_name) {
-                        return Err(ParseError::lex(LexError::Syntax(
-                            format!(
-                                "Redeclaration of formal parameter `{}`",
-                                interner.resolve_expect(param_name)
-                            )
-                            .into(),
-                            match cursor.peek(0, interner)? {
->>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                                 Some(token) => token.span().end(),
                                 None => Position::new(1, 1),
                             },

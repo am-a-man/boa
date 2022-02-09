@@ -1,8 +1,11 @@
 use crate::{
+    exec::Executable,
+    exec::InterpreterState,
     gc::{Finalize, Trace},
     syntax::ast::node::{join_nodes, Node},
+    BoaProfiler, Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -55,13 +58,73 @@ impl Call {
     }
 }
 
-impl ToInternedString for Call {
-    fn to_interned_string(&self, interner: &Interner) -> String {
-        format!(
-            "{}({})",
-            self.expr.to_interned_string(interner),
-            join_nodes(interner, &self.args)
-        )
+impl Executable for Call {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let _timer = BoaProfiler::global().start_event("Call", "exec");
+        let (this, func) = match self.expr() {
+            Node::GetConstField(ref get_const_field) => {
+                let mut obj = get_const_field.obj().run(context)?;
+                if !obj.is_object() {
+                    obj = JsValue::from(obj.to_object(context)?);
+                }
+                (
+                    obj.clone(),
+                    obj.get_field(get_const_field.field(), context)?,
+                )
+            }
+            Node::GetField(ref get_field) => {
+                let mut obj = get_field.obj().run(context)?;
+                if !obj.is_object() {
+                    obj = JsValue::from(obj.to_object(context)?);
+                }
+                let field = get_field.field().run(context)?;
+                (
+                    obj.clone(),
+                    obj.get_field(field.to_property_key(context)?, context)?,
+                )
+            }
+            _ => (
+                // 'this' binding should come from the function's self-contained environment
+                context.global_object().into(),
+                self.expr().run(context)?,
+            ),
+        };
+        let mut v_args = Vec::with_capacity(self.args().len());
+        for arg in self.args() {
+            if let Node::Spread(ref x) = arg {
+                let val = x.run(context)?;
+                let iterator_record = val.get_iterator(context, None, None)?;
+                loop {
+                    let next = iterator_record.next(context)?;
+                    if next.done {
+                        break;
+                    }
+                    let next_value = next.value;
+                    v_args.push(next_value);
+                }
+                break; // after spread we don't accept any new arguments
+            } else {
+                v_args.push(arg.run(context)?);
+            }
+        }
+
+        // execute the function call itself
+        let fnct_result = context.call(&func, &this, &v_args);
+
+        // unset the early return flag
+        context
+            .executor()
+            .set_current_state(InterpreterState::Executing);
+
+        fnct_result
+    }
+}
+
+impl fmt::Display for Call {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}(", self.expr)?;
+        join_nodes(f, &self.args)?;
+        f.write_str(")")
     }
 }
 

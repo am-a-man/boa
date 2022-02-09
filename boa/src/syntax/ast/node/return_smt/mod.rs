@@ -1,8 +1,10 @@
 use crate::{
+    exec::{Executable, InterpreterState},
     gc::{Finalize, Trace},
     syntax::ast::node::Node,
+    Context, JsResult, JsValue,
 };
-use boa_interner::{Interner, Sym, ToInternedString};
+use std::fmt;
 
 #[cfg(feature = "deser")]
 use serde::{Deserialize, Serialize};
@@ -32,12 +34,12 @@ mod tests;
 #[derive(Clone, Debug, Trace, Finalize, PartialEq)]
 pub struct Return {
     expr: Option<Box<Node>>,
-    label: Option<Sym>,
+    label: Option<Box<str>>,
 }
 
 impl Return {
-    pub fn label(&self) -> Option<Sym> {
-        self.label
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_ref().map(Box::as_ref)
     }
 
     pub fn expr(&self) -> Option<&Node> {
@@ -49,12 +51,26 @@ impl Return {
     where
         E: Into<Node>,
         OE: Into<Option<E>>,
-        L: Into<Option<Sym>>,
+        L: Into<Option<Box<str>>>,
     {
         Self {
             expr: expr.into().map(E::into).map(Box::new),
             label: label.into(),
         }
+    }
+}
+
+impl Executable for Return {
+    fn run(&self, context: &mut Context) -> JsResult<JsValue> {
+        let result = match self.expr() {
+            Some(v) => v.run(context),
+            None => Ok(JsValue::undefined()),
+        };
+        // Set flag for return
+        context
+            .executor()
+            .set_current_state(InterpreterState::Return);
+        result
     }
 }
 
@@ -64,11 +80,11 @@ impl From<Return> for Node {
     }
 }
 
-impl ToInternedString for Return {
-    fn to_interned_string(&self, interner: &Interner) -> String {
+impl fmt::Display for Return {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.expr() {
-            Some(ex) => format!("return {}", ex.to_interned_string(interner)),
-            None => "return".to_owned(),
+            Some(ex) => write!(f, "return {}", ex),
+            None => write!(f, "return"),
         }
     }
 }

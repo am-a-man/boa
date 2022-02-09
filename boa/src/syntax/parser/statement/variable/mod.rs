@@ -15,7 +15,7 @@ use crate::{
             AllowAwait, AllowIn, AllowYield, ParseError, TokenParser,
         },
     },
-    BoaProfiler, Interner,
+    BoaProfiler,
 };
 use std::io::Read;
 
@@ -55,18 +55,14 @@ where
 {
     type Output = DeclarationList;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("VariableStatement", "Parsing");
-        cursor.expect(Keyword::Var, "variable statement", interner)?;
+        cursor.expect(Keyword::Var, "variable statement")?;
 
-        let decl_list = VariableDeclarationList::new(true, self.allow_yield, self.allow_await)
-            .parse(cursor, interner)?;
+        let decl_list =
+            VariableDeclarationList::new(true, self.allow_yield, self.allow_await).parse(cursor)?;
 
-        cursor.expect_semicolon("variable statement", interner)?;
+        cursor.expect_semicolon("variable statement")?;
 
         Ok(decl_list)
     }
@@ -113,24 +109,20 @@ where
 {
     type Output = DeclarationList;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let mut list = Vec::new();
 
         loop {
             list.push(
                 VariableDeclaration::new(self.allow_in, self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?,
+                    .parse(cursor)?,
             );
 
-            match cursor.peek_semicolon(interner)? {
+            match cursor.peek_semicolon()? {
                 SemicolonResult::NotFound(tk)
                     if tk.kind() == &TokenKind::Punctuator(Punctuator::Comma) =>
                 {
-                    let _ = cursor.next(interner).expect("token disappeared");
+                    let _ = cursor.next();
                 }
                 _ => break,
             }
@@ -175,24 +167,20 @@ where
 {
     type Output = Declaration;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
-        let peek_token = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
+        let peek_token = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
         match peek_token.kind() {
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 let bindings =
                     ObjectBindingPattern::new(self.allow_in, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
+                        .parse(cursor)?;
 
-                let init = if let Some(t) = cursor.peek(0, interner)? {
+                let init = if let Some(t) = cursor.peek(0)? {
                     if *t.kind() == TokenKind::Punctuator(Punctuator::Assign) {
                         Some(
                             Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?,
+                                .parse(cursor)?,
                         )
                     } else {
                         None
@@ -206,13 +194,13 @@ where
             TokenKind::Punctuator(Punctuator::OpenBracket) => {
                 let bindings =
                     ArrayBindingPattern::new(self.allow_in, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
+                        .parse(cursor)?;
 
-                let init = if let Some(t) = cursor.peek(0, interner)? {
+                let init = if let Some(t) = cursor.peek(0)? {
                     if *t.kind() == TokenKind::Punctuator(Punctuator::Assign) {
                         Some(
                             Initializer::new(self.allow_in, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?,
+                                .parse(cursor)?,
                         )
                     } else {
                         None
@@ -225,14 +213,14 @@ where
             }
 
             _ => {
-                let ident = BindingIdentifier::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?;
+                let ident =
+                    BindingIdentifier::new(self.allow_yield, self.allow_await).parse(cursor)?;
 
-                let init = if let Some(t) = cursor.peek(0, interner)? {
+                let init = if let Some(t) = cursor.peek(0)? {
                     if *t.kind() == TokenKind::Punctuator(Punctuator::Assign) {
                         Some(
                             Initializer::new(true, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?,
+                                .parse(cursor)?,
                         )
                     } else {
                         None

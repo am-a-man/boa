@@ -10,7 +10,7 @@ use crate::{
             Cursor, ParseError, TokenParser,
         },
     },
-    BoaProfiler, Interner,
+    BoaProfiler,
 };
 
 use std::io::Read;
@@ -59,23 +59,17 @@ where
 {
     type Output = Switch;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("SwitchStatement", "Parsing");
-        cursor.expect(Keyword::Switch, "switch statement", interner)?;
-        cursor.expect(Punctuator::OpenParen, "switch statement", interner)?;
+        cursor.expect(Keyword::Switch, "switch statement")?;
+        cursor.expect(Punctuator::OpenParen, "switch statement")?;
 
-        let condition =
-            Expression::new(true, self.allow_yield, self.allow_await).parse(cursor, interner)?;
+        let condition = Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?;
 
-        cursor.expect(Punctuator::CloseParen, "switch statement", interner)?;
+        cursor.expect(Punctuator::CloseParen, "switch statement")?;
 
         let (cases, default) =
-            CaseBlock::new(self.allow_yield, self.allow_await, self.allow_return)
-                .parse(cursor, interner)?;
+            CaseBlock::new(self.allow_yield, self.allow_await, self.allow_return).parse(cursor)?;
 
         Ok(Switch::new(condition, cases, default))
     }
@@ -116,24 +110,20 @@ where
 {
     type Output = (Box<[node::Case]>, Option<node::StatementList>);
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
-        cursor.expect(Punctuator::OpenBlock, "switch case block", interner)?;
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
+        cursor.expect(Punctuator::OpenBlock, "switch case block")?;
 
         let mut cases = Vec::new();
         let mut default = None;
 
         loop {
-            match cursor.next(interner)? {
+            match cursor.next()? {
                 Some(token) if token.kind() == &TokenKind::Keyword(Keyword::Case) => {
                     // Case statement.
-                    let cond = Expression::new(true, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?;
+                    let cond =
+                        Expression::new(true, self.allow_yield, self.allow_await).parse(cursor)?;
 
-                    cursor.expect(Punctuator::Colon, "switch case block", interner)?;
+                    cursor.expect(Punctuator::Colon, "switch case block")?;
 
                     let statement_list = StatementList::new(
                         self.allow_yield,
@@ -142,7 +132,7 @@ where
                         false,
                         &CASE_BREAK_TOKENS,
                     )
-                    .parse(cursor, interner)?;
+                    .parse(cursor)?;
 
                     cases.push(node::Case::new(cond, statement_list));
                 }
@@ -150,13 +140,12 @@ where
                     if default.is_some() {
                         // If default has already been defined then it cannot be defined again and to do so is an error.
                         return Err(ParseError::unexpected(
-                            token.to_string(interner),
-                            token.span(),
+                            token,
                             Some("more than one switch default"),
                         ));
                     }
 
-                    cursor.expect(Punctuator::Colon, "switch default block", interner)?;
+                    cursor.expect(Punctuator::Colon, "switch default block")?;
 
                     let statement_list = StatementList::new(
                         self.allow_yield,
@@ -165,7 +154,7 @@ where
                         false,
                         &CASE_BREAK_TOKENS,
                     )
-                    .parse(cursor, interner)?;
+                    .parse(cursor)?;
 
                     default = Some(statement_list);
                 }
@@ -174,9 +163,12 @@ where
                 }
                 Some(token) => {
                     return Err(ParseError::expected(
-                        ["case".to_owned(), "default".to_owned(), "}".to_owned()],
-                        token.to_string(interner),
-                        token.span(),
+                        vec![
+                            TokenKind::Keyword(Keyword::Case),
+                            TokenKind::Keyword(Keyword::Default),
+                            TokenKind::Punctuator(Punctuator::CloseBlock),
+                        ],
+                        token,
                         "switch case block",
                     ))
                 }

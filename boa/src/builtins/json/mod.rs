@@ -135,7 +135,7 @@ impl Json {
         if let Some(obj) = val.as_object() {
             // a. Let isArray be ? IsArray(val).
             // b. If isArray is true, then
-            if obj.is_array_abstract(context)? {
+            if obj.is_array() {
                 // i. Let I be 0.
                 // ii. Let len be ? LengthOfArrayLike(val).
                 // iii. Repeat, while I < len,
@@ -237,7 +237,7 @@ impl Json {
             } else {
                 // i. Let isArray be ? IsArray(replacer).
                 // ii. If isArray is true, then
-                if replacer_obj.is_array_abstract(context)? {
+                if replacer_obj.is_array() {
                     // 1. Set PropertyList to a new empty List.
                     let mut property_set = indexmap::IndexSet::new();
 
@@ -448,7 +448,7 @@ impl Json {
 
         // 10. If Type(value) is BigInt, throw a TypeError exception.
         if value.is_bigint() {
-            return context.throw_type_error("cannot serialize bigint to JSON");
+            return Err(context.construct_type_error("cannot serialize bigint to JSON"));
         }
 
         // 11. If Type(value) is Object and IsCallable(value) is false, then
@@ -457,7 +457,7 @@ impl Json {
                 // a. Let isArray be ? IsArray(value).
                 // b. If isArray is true, return ? SerializeJSONArray(state, value).
                 // c. Return ? SerializeJSONObject(state, value).
-                return if obj.is_array_abstract(context)? {
+                return if obj.is_array() {
                     Ok(Some(Self::serialize_json_array(state, obj, context)?))
                 } else {
                     Ok(Some(Self::serialize_json_object(state, obj, context)?))
@@ -531,7 +531,7 @@ impl Json {
         // 1. If state.[[Stack]] contains value, throw a TypeError exception because the structure is cyclical.
         let limiter = RecursionLimiter::new(value);
         if limiter.live {
-            return context.throw_type_error("cyclic object value");
+            return Err(context.construct_type_error("cyclic object value"));
         }
 
         // 2. Append value to state.[[Stack]].
@@ -644,7 +644,7 @@ impl Json {
         // 1. If state.[[Stack]] contains value, throw a TypeError exception because the structure is cyclical.
         let limiter = RecursionLimiter::new(value);
         if limiter.live {
-            return context.throw_type_error("cyclic object value");
+            return Err(context.construct_type_error("cyclic object value"));
         }
 
         // 2. Append value to state.[[Stack]].

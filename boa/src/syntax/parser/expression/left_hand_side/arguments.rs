@@ -8,7 +8,6 @@
 //! [spec]: https://tc39.es/ecma262/#prod-Arguments
 
 use crate::syntax::lexer::TokenKind;
-use crate::Interner;
 use crate::{
     syntax::{
         ast::{node::Spread, Node, Punctuator},
@@ -57,55 +56,49 @@ where
 {
     type Output = Box<[Node]>;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         let _timer = BoaProfiler::global().start_event("Arguments", "Parsing");
 
-        cursor.expect(Punctuator::OpenParen, "arguments", interner)?;
+        cursor.expect(Punctuator::OpenParen, "arguments")?;
         let mut args = Vec::new();
         loop {
-            let next_token = cursor.peek(0, interner)?.ok_or(ParseError::AbruptEnd)?;
+            let next_token = cursor.peek(0)?.ok_or(ParseError::AbruptEnd)?;
 
             match next_token.kind() {
                 TokenKind::Punctuator(Punctuator::CloseParen) => {
-                    cursor.next(interner)?.expect(") token vanished"); // Consume the token.
+                    cursor.next()?.expect(") token vanished"); // Consume the token.
                     break;
                 }
                 TokenKind::Punctuator(Punctuator::Comma) => {
-                    let next_token = cursor.next(interner)?.expect(", token vanished"); // Consume the token.
+                    let next_token = cursor.next()?.expect(", token vanished"); // Consume the token.
 
                     if args.is_empty() {
-                        return Err(ParseError::unexpected(
-                            next_token.to_string(interner),
-                            next_token.span(),
-                            None,
-                        ));
+                        return Err(ParseError::unexpected(next_token, None));
                     }
 
-                    if cursor.next_if(Punctuator::CloseParen, interner)?.is_some() {
+                    if cursor.next_if(Punctuator::CloseParen)?.is_some() {
                         break;
                     }
                 }
                 _ => {
                     if !args.is_empty() {
                         return Err(ParseError::expected(
-                            [",".to_owned(), "}".to_owned()],
-                            next_token.to_string(interner),
-                            next_token.span(),
+                            vec![
+                                TokenKind::Punctuator(Punctuator::Comma),
+                                TokenKind::Punctuator(Punctuator::CloseParen),
+                            ],
+                            next_token.clone(),
                             "argument list",
                         ));
                     }
                 }
             }
 
-            if cursor.next_if(Punctuator::Spread, interner)?.is_some() {
+            if cursor.next_if(Punctuator::Spread)?.is_some() {
                 args.push(
                     Spread::new(
                         AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                            .parse(cursor, interner)?,
+                            .parse(cursor)?,
                     )
                     .into(),
                 );
@@ -113,7 +106,7 @@ where
                 cursor.set_goal(InputElement::RegExp);
                 args.push(
                     AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                        .parse(cursor, interner)?,
+                        .parse(cursor)?,
                 );
             }
         }

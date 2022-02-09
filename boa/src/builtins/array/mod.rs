@@ -165,7 +165,7 @@ impl Array {
                 let int_len = len.to_u32(context).unwrap();
                 // ii. If SameValueZero(intLen, len) is false, throw a RangeError exception.
                 if !JsValue::same_value_zero(&int_len.into(), len) {
-                    return context.throw_range_error("invalid array length");
+                    return Err(context.construct_range_error("invalid array length"));
                 }
                 int_len
             };
@@ -210,7 +210,7 @@ impl Array {
     ) -> JsResult<JsObject> {
         // 1. If length > 2^32 - 1, throw a RangeError exception.
         if length > 2usize.pow(32) - 1 {
-            return context.throw_range_error("array exceeded max size");
+            return Err(context.construct_range_error("array exceeded max size"));
         }
         // 7. Return A.
         // 2. If proto is not present, set proto to %Array.prototype%.
@@ -291,7 +291,10 @@ impl Array {
             return Ok(spreadable.to_boolean());
         }
         // 4. Return ? IsArray(O).
-        this.is_array(context)
+        match this.as_object() {
+            Some(obj) => Ok(obj.is_array()),
+            _ => Ok(false),
+        }
     }
 
     /// `get Array [ @@species ]`
@@ -320,7 +323,7 @@ impl Array {
     ) -> JsResult<JsObject> {
         // 1. Let isArray be ? IsArray(originalArray).
         // 2. If isArray is false, return ? ArrayCreate(length).
-        if !original_array.is_array_abstract(context)? {
+        if !original_array.is_array() {
             return Self::array_create(length, None, context);
         }
         // 3. Let C be ? Get(originalArray, "constructor").
@@ -362,7 +365,7 @@ impl Array {
                     .unwrap(),
             )
         } else {
-            context.throw_type_error("Symbol.species must be a constructor")
+            Err(context.construct_type_error("Symbol.species must be a constructor"))
         }
     }
 
@@ -408,15 +411,13 @@ impl Array {
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-array.isarray
     /// [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
-    pub(crate) fn is_array(
-        _: &JsValue,
-        args: &[JsValue],
-        context: &mut Context,
-    ) -> JsResult<JsValue> {
-        // 1. Return ? IsArray(arg).
-        args.get_or_undefined(0)
-            .is_array(context)
-            .map(|ok| ok.into())
+    pub(crate) fn is_array(_: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+        Ok(args
+            .get_or_undefined(0)
+            .as_object()
+            .map(|obj| obj.borrow().is_array())
+            .unwrap_or_default()
+            .into())
     }
 
     /// `Array.of(...items)`
@@ -1668,8 +1669,8 @@ impl Array {
                 } else {
                     // 1. If targetIndex >= 2^53 - 1, throw a TypeError exception
                     if target_index >= Number::MAX_SAFE_INTEGER as u64 {
-                        return context
-                            .throw_type_error("Target index exceeded max safe integer value");
+                        return Err(context
+                            .construct_type_error("Target index exceeded max safe integer value"));
                     }
 
                     // 2. Perform ? CreateDataPropertyOrThrow(target, targetIndex, element)

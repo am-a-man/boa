@@ -9,7 +9,6 @@
 
 use super::ParseError;
 use crate::syntax::lexer::TokenKind;
-use crate::Interner;
 use crate::{
     syntax::{
         ast::{
@@ -56,14 +55,11 @@ impl ExponentiationExpression {
 }
 
 /// Checks by looking at the next token to see whether it's a unary operator or not.
-fn is_unary_expression<R>(
-    cursor: &mut Cursor<R>,
-    interner: &mut Interner,
-) -> Result<bool, ParseError>
+fn is_unary_expression<R>(cursor: &mut Cursor<R>) -> Result<bool, ParseError>
 where
     R: Read,
 {
-    Ok(if let Some(tok) = cursor.peek(0, interner)? {
+    Ok(if let Some(tok) = cursor.peek(0)? {
         matches!(
             tok.kind(),
             TokenKind::Keyword(Keyword::Delete)
@@ -85,20 +81,18 @@ where
 {
     type Output = Node;
 
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult {
+    fn parse(self, cursor: &mut Cursor<R>) -> ParseResult {
         let _timer = BoaProfiler::global().start_event("ExponentiationExpression", "Parsing");
 
-        if is_unary_expression(cursor, interner)? {
-            return UnaryExpression::new(self.allow_yield, self.allow_await)
-                .parse(cursor, interner);
+        if is_unary_expression(cursor)? {
+            return UnaryExpression::new(self.allow_yield, self.allow_await).parse(cursor);
         }
 
-        let lhs =
-            UpdateExpression::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
-        if let Some(tok) = cursor.peek(0, interner)? {
+        let lhs = UpdateExpression::new(self.allow_yield, self.allow_await).parse(cursor)?;
+        if let Some(tok) = cursor.peek(0)? {
             if let TokenKind::Punctuator(Punctuator::Exp) = tok.kind() {
-                cursor.next(interner)?.expect("** token vanished"); // Consume the token.
-                return Ok(BinOp::new(NumOp::Exp, lhs, self.parse(cursor, interner)?).into());
+                cursor.next()?.expect("** token vanished"); // Consume the token.
+                return Ok(BinOp::new(NumOp::Exp, lhs, self.parse(cursor)?).into());
             }
         }
         Ok(lhs)

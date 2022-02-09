@@ -9,13 +9,10 @@
 
 use super::unary::UnaryExpression;
 
-use crate::{
-    syntax::{
-        ast::{node::AwaitExpr, Keyword},
-        lexer::TokenKind,
-        parser::{AllowYield, Cursor, ParseError, TokenParser},
-    },
-    Interner,
+use crate::syntax::{
+    ast::{node::AwaitExpr, Keyword},
+    lexer::TokenKind,
+    parser::{AllowYield, Cursor, ParseError, TokenParser},
 };
 use std::io::Read;
 
@@ -50,17 +47,12 @@ where
 {
     type Output = AwaitExpr;
 
-    fn parse(
-        self,
-        cursor: &mut Cursor<R>,
-        interner: &mut Interner,
-    ) -> Result<Self::Output, ParseError> {
+    fn parse(self, cursor: &mut Cursor<R>) -> Result<Self::Output, ParseError> {
         cursor.expect(
             TokenKind::Keyword(Keyword::Await),
             "Await expression parsing",
-            interner,
         )?;
-        let expr = UnaryExpression::new(self.allow_yield, true).parse(cursor, interner)?;
+        let expr = UnaryExpression::new(self.allow_yield, true).parse(cursor)?;
         Ok(expr.into())
     }
 }
