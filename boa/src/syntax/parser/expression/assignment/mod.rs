@@ -96,9 +96,7 @@ where
                     .parse(cursor, interner)
             }
             // ArrowFunction[?In, ?Yield, ?Await] -> ArrowParameters[?Yield, ?Await] -> BindingIdentifier[?Yield, ?Await]
-            TokenKind::Identifier(_)
-            | TokenKind::Keyword(Keyword::Yield)
-            | TokenKind::Keyword(Keyword::Await) => {
+            TokenKind::Identifier(_) | TokenKind::Keyword(Keyword::Yield | Keyword::Await) => {
                 if let Ok(tok) =
                     cursor.peek_expect_no_lineterminator(1, "assignment expression", interner)
                 {
@@ -155,8 +153,9 @@ where
                                         .map(Node::ArrowFunctionDecl);
                                     }
                                     TokenKind::Punctuator(Punctuator::CloseParen) => {
-                                        // Need to check if the token after the close paren is an arrow, if so then this is an ArrowFunction
-                                        // otherwise it is an expression of the form (b).
+                                        // Need to check if the token after the close paren is an
+                                        // arrow, if so then this is an ArrowFunction otherwise it
+                                        // is an expression of the form (b).
                                         if let Some(t) = cursor.peek(3, interner)? {
                                             if t.kind() == &TokenKind::Punctuator(Punctuator::Arrow)
                                             {

@@ -181,6 +181,7 @@ where
             let lexically_declared_names = body.lexically_declared_names(interner);
             for param in params.parameters.as_ref() {
 <<<<<<< HEAD
+<<<<<<< HEAD
                 for param_name in param.names() {
                     if lexically_declared_names.contains(param_name) {
                         return Err(ParseError::lex(LexError::Syntax(
@@ -188,6 +189,9 @@ where
                             match cursor.peek(0)? {
 =======
                 for param_name in param.names().into_iter() {
+=======
+                for param_name in param.names() {
+>>>>>>> 7779c1a6f1f5d467c3307ab0cff1aa412a990db5
                     if lexically_declared_names.contains(&param_name) {
                         return Err(ParseError::lex(LexError::Syntax(
                             format!(
@@ -245,7 +249,7 @@ where
             .kind()
         {
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
-                let _ = cursor.next(interner)?;
+                let _next = cursor.next(interner)?;
                 let body = FunctionBody::new(false, false).parse(cursor, interner)?;
                 cursor.expect(Punctuator::CloseBlock, "arrow function", interner)?;
                 Ok(body)
