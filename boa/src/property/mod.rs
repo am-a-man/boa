@@ -1,11 +1,10 @@
 //! This module implements the Property Descriptor.
 //!
-//! The Property Descriptor type is used to explain the manipulation and reification of `Object`
-//! property attributes. Values of the Property Descriptor type are Records. Each field's name is
-//! an attribute name and its value is a corresponding attribute value as specified in
-//! [6.1.7.1][section]. In addition, any field may be present or absent. The schema name used
-//! within this specification to tag literal descriptions of Property Descriptor records is
-//! `PropertyDescriptor`.
+//! The Property Descriptor type is used to explain the manipulation and reification of Object property attributes.
+//! Values of the Property Descriptor type are Records. Each field's name is an attribute name
+//! and its value is a corresponding attribute value as specified in [6.1.7.1][section].
+//! In addition, any field may be present or absent.
+//! The schema name used within this specification to tag literal descriptions of Property Descriptor records is “PropertyDescriptor”.
 //!
 //! More information:
 //!  - [MDN documentation][mdn]
@@ -246,7 +245,7 @@ impl PropertyDescriptor {
     }
 
     #[inline]
-    pub fn fill_with(&mut self, desc: &Self) {
+    pub fn fill_with(&mut self, desc: Self) {
         match (&mut self.kind, &desc.kind) {
             (
                 DescriptorKind::Data { value, writable },
@@ -256,10 +255,10 @@ impl PropertyDescriptor {
                 },
             ) => {
                 if let Some(desc_value) = desc_value {
-                    *value = Some(desc_value.clone());
+                    *value = Some(desc_value.clone())
                 }
                 if let Some(desc_writable) = desc_writable {
-                    *writable = Some(*desc_writable);
+                    *writable = Some(*desc_writable)
                 }
             }
             (
@@ -270,10 +269,10 @@ impl PropertyDescriptor {
                 },
             ) => {
                 if let Some(desc_get) = desc_get {
-                    *get = Some(desc_get.clone());
+                    *get = Some(desc_get.clone())
                 }
                 if let Some(desc_set) = desc_set {
-                    *set = Some(desc_set.clone());
+                    *set = Some(desc_set.clone())
                 }
             }
             (_, DescriptorKind::Generic) => {}
@@ -281,10 +280,10 @@ impl PropertyDescriptor {
         }
 
         if let Some(enumerable) = desc.enumerable {
-            self.enumerable = Some(enumerable);
+            self.enumerable = Some(enumerable)
         }
         if let Some(configurable) = desc.configurable {
-            self.configurable = Some(configurable);
+            self.configurable = Some(configurable)
         }
     }
 }
@@ -424,10 +423,10 @@ impl PropertyDescriptorBuilder {
                 ref mut writable,
             } => {
                 if value.is_none() {
-                    *value = Some(JsValue::undefined());
+                    *value = Some(JsValue::undefined())
                 }
                 if writable.is_none() {
-                    *writable = Some(false);
+                    *writable = Some(false)
                 }
             }
             DescriptorKind::Accessor {
@@ -435,10 +434,10 @@ impl PropertyDescriptorBuilder {
                 ref mut get,
             } => {
                 if set.is_none() {
-                    *set = Some(JsValue::undefined());
+                    *set = Some(JsValue::undefined())
                 }
                 if get.is_none() {
-                    *get = Some(JsValue::undefined());
+                    *get = Some(JsValue::undefined())
                 }
             }
         }
@@ -466,7 +465,7 @@ impl From<PropertyDescriptorBuilder> for PropertyDescriptor {
     }
 }
 
-/// This abstracts away the need for `IsPropertyKey` by transforming the `PropertyKey`
+/// This abstracts away the need for IsPropertyKey by transforming the PropertyKey
 /// values into an enum with both valid types: String and Symbol
 ///
 /// More information:
@@ -482,52 +481,52 @@ pub enum PropertyKey {
 
 impl From<JsString> for PropertyKey {
     #[inline]
-    fn from(string: JsString) -> Self {
+    fn from(string: JsString) -> PropertyKey {
         if let Ok(index) = string.parse() {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(string)
+            PropertyKey::String(string)
         }
     }
 }
 
 impl From<&str> for PropertyKey {
     #[inline]
-    fn from(string: &str) -> Self {
+    fn from(string: &str) -> PropertyKey {
         if let Ok(index) = string.parse() {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(string.into())
+            PropertyKey::String(string.into())
         }
     }
 }
 
 impl From<String> for PropertyKey {
     #[inline]
-    fn from(string: String) -> Self {
+    fn from(string: String) -> PropertyKey {
         if let Ok(index) = string.parse() {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(string.into())
+            PropertyKey::String(string.into())
         }
     }
 }
 
 impl From<Box<str>> for PropertyKey {
     #[inline]
-    fn from(string: Box<str>) -> Self {
+    fn from(string: Box<str>) -> PropertyKey {
         if let Ok(index) = string.parse() {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(string.into())
+            PropertyKey::String(string.into())
         }
     }
 }
 
 impl From<JsSymbol> for PropertyKey {
     #[inline]
-    fn from(symbol: JsSymbol) -> Self {
-        Self::Symbol(symbol)
+    fn from(symbol: JsSymbol) -> PropertyKey {
+        PropertyKey::Symbol(symbol)
     }
 }
 
@@ -535,24 +534,24 @@ impl fmt::Display for PropertyKey {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::String(ref string) => string.fmt(f),
-            Self::Symbol(ref symbol) => symbol.fmt(f),
-            Self::Index(index) => index.fmt(f),
+            PropertyKey::String(ref string) => string.fmt(f),
+            PropertyKey::Symbol(ref symbol) => symbol.fmt(f),
+            PropertyKey::Index(index) => index.fmt(f),
         }
     }
 }
 
 impl From<&PropertyKey> for JsValue {
     #[inline]
-    fn from(property_key: &PropertyKey) -> Self {
+    fn from(property_key: &PropertyKey) -> JsValue {
         match property_key {
             PropertyKey::String(ref string) => string.clone().into(),
             PropertyKey::Symbol(ref symbol) => symbol.clone().into(),
             PropertyKey::Index(index) => {
                 if let Ok(integer) = i32::try_from(*index) {
-                    Self::new(integer)
+                    JsValue::new(integer)
                 } else {
-                    Self::new(*index)
+                    JsValue::new(*index)
                 }
             }
         }
@@ -561,15 +560,15 @@ impl From<&PropertyKey> for JsValue {
 
 impl From<PropertyKey> for JsValue {
     #[inline]
-    fn from(property_key: PropertyKey) -> Self {
+    fn from(property_key: PropertyKey) -> JsValue {
         match property_key {
             PropertyKey::String(ref string) => string.clone().into(),
             PropertyKey::Symbol(ref symbol) => symbol.clone().into(),
             PropertyKey::Index(index) => {
                 if let Ok(integer) = i32::try_from(index) {
-                    Self::new(integer)
+                    JsValue::new(integer)
                 } else {
-                    Self::new(index)
+                    JsValue::new(index)
                 }
             }
         }
@@ -578,28 +577,28 @@ impl From<PropertyKey> for JsValue {
 
 impl From<u8> for PropertyKey {
     fn from(value: u8) -> Self {
-        Self::Index(value.into())
+        PropertyKey::Index(value.into())
     }
 }
 
 impl From<u16> for PropertyKey {
     fn from(value: u16) -> Self {
-        Self::Index(value.into())
+        PropertyKey::Index(value.into())
     }
 }
 
 impl From<u32> for PropertyKey {
     fn from(value: u32) -> Self {
-        Self::Index(value)
+        PropertyKey::Index(value)
     }
 }
 
 impl From<usize> for PropertyKey {
     fn from(value: usize) -> Self {
         if let Ok(index) = u32::try_from(value) {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(JsString::from(value.to_string()))
+            PropertyKey::String(JsString::from(value.to_string()))
         }
     }
 }
@@ -607,9 +606,9 @@ impl From<usize> for PropertyKey {
 impl From<i64> for PropertyKey {
     fn from(value: i64) -> Self {
         if let Ok(index) = u32::try_from(value) {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(JsString::from(value.to_string()))
+            PropertyKey::String(JsString::from(value.to_string()))
         }
     }
 }
@@ -617,9 +616,9 @@ impl From<i64> for PropertyKey {
 impl From<u64> for PropertyKey {
     fn from(value: u64) -> Self {
         if let Ok(index) = u32::try_from(value) {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(JsString::from(value.to_string()))
+            PropertyKey::String(JsString::from(value.to_string()))
         }
     }
 }
@@ -627,9 +626,9 @@ impl From<u64> for PropertyKey {
 impl From<isize> for PropertyKey {
     fn from(value: isize) -> Self {
         if let Ok(index) = u32::try_from(value) {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(JsString::from(value.to_string()))
+            PropertyKey::String(JsString::from(value.to_string()))
         }
     }
 }
@@ -637,9 +636,9 @@ impl From<isize> for PropertyKey {
 impl From<i32> for PropertyKey {
     fn from(value: i32) -> Self {
         if let Ok(index) = u32::try_from(value) {
-            Self::Index(index)
+            PropertyKey::Index(index)
         } else {
-            Self::String(JsString::from(value.to_string()))
+            PropertyKey::String(JsString::from(value.to_string()))
         }
     }
 }
@@ -648,17 +647,17 @@ impl From<f64> for PropertyKey {
     fn from(value: f64) -> Self {
         use num_traits::cast::FromPrimitive;
         if let Some(index) = u32::from_f64(value) {
-            return Self::Index(index);
+            return PropertyKey::Index(index);
         }
 
-        Self::String(ryu_js::Buffer::new().format(value).into())
+        PropertyKey::String(ryu_js::Buffer::new().format(value).into())
     }
 }
 
 impl PartialEq<&str> for PropertyKey {
     fn eq(&self, other: &&str) -> bool {
         match self {
-            Self::String(ref string) => string == other,
+            PropertyKey::String(ref string) => string == other,
             _ => false,
         }
     }

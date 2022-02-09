@@ -1,7 +1,8 @@
 //! Async Generator Declaration parsing
 //!
-//! Implements `TokenParser` for `AsyncGeneratorDeclaration`on and outputs an `AsyncGeneratorDecl`
-//! ast node.
+//! Implements TokenParser for AsyncGeneratorDeclaration and outputs an
+//! AsyncGeneratorDecl ast node
+//!
 
 #[cfg(test)]
 mod tests;

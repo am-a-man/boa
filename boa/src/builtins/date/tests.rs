@@ -70,7 +70,7 @@ fn date_this_time_value() {
 }
 
 #[test]
-fn date_call() {
+fn date_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let dt1 = forward(&mut context, "Date()");
@@ -80,10 +80,11 @@ fn date_call() {
     let dt2 = forward(&mut context, "Date()");
 
     assert_ne!(dt1, dt2);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call() {
+fn date_ctor_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let dt1 = forward_dt_local(&mut context, "new Date()");
@@ -93,10 +94,11 @@ fn date_ctor_call() {
     let dt2 = forward_dt_local(&mut context, "new Date()");
 
     assert_ne!(dt1, dt2);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_string() {
+fn date_ctor_call_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_utc(&mut context, "new Date('2020-06-08T09:16:15.779-06:30')");
@@ -106,18 +108,20 @@ fn date_ctor_call_string() {
         Some(NaiveDate::from_ymd(2020, 06, 08).and_hms_milli(15, 46, 15, 779)),
         date_time
     );
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_string_invalid() {
+fn date_ctor_call_string_invalid() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_local(&mut context, "new Date('nope')");
     assert_eq!(None, date_time);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_number() {
+fn date_ctor_call_number() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_utc(&mut context, "new Date(1594199775779)");
@@ -125,10 +129,11 @@ fn date_ctor_call_number() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 15, 779)),
         date_time
     );
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_date() {
+fn date_ctor_call_date() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_utc(&mut context, "new Date(new Date(1594199775779))");
@@ -137,10 +142,11 @@ fn date_ctor_call_date() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 15, 779)),
         date_time
     );
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_multiple() {
+fn date_ctor_call_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_local(&mut context, "new Date(2020, 06, 08, 09, 16, 15, 779)");
@@ -149,10 +155,11 @@ fn date_ctor_call_multiple() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 15, 779)),
         date_time
     );
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_multiple_90s() {
+fn date_ctor_call_multiple_90s() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_dt_local(&mut context, "new Date(99, 06, 08, 09, 16, 15, 779)");
@@ -161,10 +168,11 @@ fn date_ctor_call_multiple_90s() {
         Some(NaiveDate::from_ymd(1999, 07, 08).and_hms_milli(09, 16, 15, 779)),
         date_time
     );
+    Ok(())
 }
 
 #[test]
-fn date_ctor_call_multiple_nan() {
+fn date_ctor_call_multiple_nan() -> Result<(), Box<dyn std::error::Error>> {
     fn check(src: &str) {
         let mut context = Context::default();
         let date_time = forward_dt_local(&mut context, src);
@@ -178,43 +186,48 @@ fn date_ctor_call_multiple_nan() {
     check("new Date(2020, 06, 08, 09, 1/0, 15, 779)");
     check("new Date(2020, 06, 08, 09, 16, 1/0, 779)");
     check("new Date(2020, 06, 08, 09, 16, 15, 1/0)");
+
+    Ok(())
 }
 
 #[test]
-fn date_ctor_now_call() {
+fn date_ctor_now_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward(&mut context, "Date.now()");
-    let dt1 = date_time.parse::<u64>().unwrap();
+    let dt1 = date_time.parse::<u64>()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1));
 
     let date_time = forward(&mut context, "Date.now()");
-    let dt2 = date_time.parse::<u64>().unwrap();
+    let dt2 = date_time.parse::<u64>()?;
 
     assert_ne!(dt1, dt2);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_parse_call() {
+fn date_ctor_parse_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_val(&mut context, "Date.parse('2020-06-08T09:16:15.779-07:30')");
 
     assert_eq!(Ok(JsValue::new(1591634775779f64)), date_time);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_utc_call() {
+fn date_ctor_utc_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let date_time = forward_val(&mut context, "Date.UTC(2020, 06, 08, 09, 16, 15, 779)");
 
     assert_eq!(Ok(JsValue::new(1594199775779f64)), date_time);
+    Ok(())
 }
 
 #[test]
-fn date_ctor_utc_call_nan() {
+fn date_ctor_utc_call_nan() -> Result<(), Box<dyn std::error::Error>> {
     fn check(src: &str) {
         let mut context = Context::default();
         let date_time = forward_val(&mut context, src).expect("Expected Success");
@@ -228,10 +241,12 @@ fn date_ctor_utc_call_nan() {
     check("Date.UTC(2020, 06, 08, 09, 1/0, 15, 779)");
     check("Date.UTC(2020, 06, 08, 09, 16, 1/0, 779)");
     check("Date.UTC(2020, 06, 08, 09, 16, 15, 1/0)");
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_date_call() {
+fn date_proto_get_date_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -242,10 +257,12 @@ fn date_proto_get_date_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getDate()");
     assert_eq!(Ok(JsValue::nan()), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_day_call() {
+fn date_proto_get_day_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -256,10 +273,11 @@ fn date_proto_get_day_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getDay()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_full_year_call() {
+fn date_proto_get_full_year_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -270,10 +288,11 @@ fn date_proto_get_full_year_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getFullYear()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_hours_call() {
+fn date_proto_get_hours_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -284,10 +303,11 @@ fn date_proto_get_hours_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getHours()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_milliseconds_call() {
+fn date_proto_get_milliseconds_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -298,10 +318,11 @@ fn date_proto_get_milliseconds_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getMilliseconds()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_minutes_call() {
+fn date_proto_get_minutes_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -312,10 +333,11 @@ fn date_proto_get_minutes_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getMinutes()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_month() {
+fn date_proto_get_month() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -326,10 +348,12 @@ fn date_proto_get_month() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getMonth()");
     assert_eq!(Ok(JsValue::nan()), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_seconds() {
+fn date_proto_get_seconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -340,10 +364,11 @@ fn date_proto_get_seconds() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getSeconds()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_time() {
+fn date_proto_get_time() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -359,10 +384,11 @@ fn date_proto_get_time() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getTime()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_year() {
+fn date_proto_get_year() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -373,10 +399,11 @@ fn date_proto_get_year() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getYear()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_timezone_offset() {
+fn date_proto_get_timezone_offset() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -393,7 +420,7 @@ fn date_proto_get_timezone_offset() {
     );
 
     // The value of now().offset() depends on the host machine, so we have to replicate the method code here.
-    let offset_seconds = f64::from(chrono::Local::now().offset().local_minus_utc());
+    let offset_seconds = chrono::Local::now().offset().local_minus_utc() as f64;
     let offset_minutes = -offset_seconds / 60f64;
     assert_eq!(Ok(JsValue::new(offset_minutes)), actual);
 
@@ -402,10 +429,11 @@ fn date_proto_get_timezone_offset() {
         "new Date('1975-08-19T23:15:30+07:00').getTimezoneOffset()",
     );
     assert_eq!(Ok(JsValue::new(offset_minutes)), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_date_call() {
+fn date_proto_get_utc_date_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -416,10 +444,12 @@ fn date_proto_get_utc_date_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCDate()");
     assert_eq!(Ok(JsValue::nan()), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_day_call() {
+fn date_proto_get_utc_day_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -430,10 +460,11 @@ fn date_proto_get_utc_day_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCDay()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_full_year_call() {
+fn date_proto_get_utc_full_year_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -444,10 +475,11 @@ fn date_proto_get_utc_full_year_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCFullYear()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_hours_call() {
+fn date_proto_get_utc_hours_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -458,10 +490,11 @@ fn date_proto_get_utc_hours_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCHours()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_milliseconds_call() {
+fn date_proto_get_utc_milliseconds_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -472,10 +505,11 @@ fn date_proto_get_utc_milliseconds_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCMilliseconds()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_minutes_call() {
+fn date_proto_get_utc_minutes_call() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -486,10 +520,11 @@ fn date_proto_get_utc_minutes_call() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCMinutes()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_month() {
+fn date_proto_get_utc_month() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -500,10 +535,12 @@ fn date_proto_get_utc_month() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCMonth()");
     assert_eq!(Ok(JsValue::nan()), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_get_utc_seconds() {
+fn date_proto_get_utc_seconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -514,10 +551,11 @@ fn date_proto_get_utc_seconds() {
 
     let actual = forward_val(&mut context, "new Date(1/0).getUTCSeconds()");
     assert_eq!(Ok(JsValue::nan()), actual);
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_date() {
+fn date_proto_set_date() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -544,10 +582,12 @@ fn date_proto_set_date() {
         "dt = new Date(2020, 06, 08, 09, 16, 15, 779); dt.setDate(1/0); dt",
     );
     assert_eq!(None, actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_full_year() {
+fn date_proto_set_full_year() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -614,10 +654,12 @@ fn date_proto_set_full_year() {
         Some(NaiveDate::from_ymd(2010, 02, 23).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_hours() {
+fn date_proto_set_hours() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -666,10 +708,12 @@ fn date_proto_set_hours() {
         Some(NaiveDate::from_ymd(2021, 09, 11).and_hms_milli(21, 40, 40, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_milliseconds() {
+fn date_proto_set_milliseconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -692,10 +736,12 @@ fn date_proto_set_milliseconds() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 55, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_minutes() {
+fn date_proto_set_minutes() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -736,10 +782,12 @@ fn date_proto_set_minutes() {
         Some(NaiveDate::from_ymd(2021, 08, 29).and_hms_milli(09, 20, 40, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_month() {
+fn date_proto_set_month() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -771,10 +819,12 @@ fn date_proto_set_month() {
         Some(NaiveDate::from_ymd(2023, 07, 22).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_seconds() {
+fn date_proto_set_seconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -806,10 +856,12 @@ fn date_proto_set_seconds() {
         Some(NaiveDate::from_ymd(2021, 11, 14).and_hms_milli(08, 23, 20, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn set_year() {
+fn set_year() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -829,10 +881,12 @@ fn set_year() {
         Some(NaiveDate::from_ymd(2001, 07, 08).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_time() {
+fn date_proto_set_time() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_local(
@@ -843,10 +897,12 @@ fn date_proto_set_time() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_date() {
+fn date_proto_set_utc_date() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -873,10 +929,12 @@ fn date_proto_set_utc_date() {
         "dt = new Date(Date.UTC(2020, 06, 08, 09, 16, 15, 779)); dt.setUTCDate(1/0); dt",
     );
     assert_eq!(None, actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_full_year() {
+fn date_proto_set_utc_full_year() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -943,10 +1001,12 @@ fn date_proto_set_utc_full_year() {
         Some(NaiveDate::from_ymd(2010, 02, 23).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_hours() {
+fn date_proto_set_utc_hours() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -995,10 +1055,12 @@ fn date_proto_set_utc_hours() {
         Some(NaiveDate::from_ymd(2021, 09, 11).and_hms_milli(21, 40, 40, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_milliseconds() {
+fn date_proto_set_utc_milliseconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -1021,10 +1083,12 @@ fn date_proto_set_utc_milliseconds() {
         Some(NaiveDate::from_ymd(2020, 07, 08).and_hms_milli(09, 16, 55, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_minutes() {
+fn date_proto_set_utc_minutes() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -1065,10 +1129,12 @@ fn date_proto_set_utc_minutes() {
         Some(NaiveDate::from_ymd(2021, 08, 29).and_hms_milli(09, 20, 40, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_month() {
+fn date_proto_set_utc_month() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -1100,10 +1166,12 @@ fn date_proto_set_utc_month() {
         Some(NaiveDate::from_ymd(2023, 07, 22).and_hms_milli(09, 16, 15, 779)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_set_utc_seconds() {
+fn date_proto_set_utc_seconds() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_dt_utc(
@@ -1135,10 +1203,12 @@ fn date_proto_set_utc_seconds() {
         Some(NaiveDate::from_ymd(2021, 11, 14).and_hms_milli(08, 23, 20, 123)),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_date_string() {
+fn date_proto_to_date_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1147,10 +1217,12 @@ fn date_proto_to_date_string() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new("Wed Jul 08 2020"), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_gmt_string() {
+fn date_proto_to_gmt_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1159,10 +1231,12 @@ fn date_proto_to_gmt_string() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new("Wed, 08 Jul 2020 09:16:15 GMT"), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_iso_string() {
+fn date_proto_to_iso_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1171,10 +1245,12 @@ fn date_proto_to_iso_string() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new("2020-07-08T09:16:15.779Z"), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_json() {
+fn date_proto_to_json() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1183,10 +1259,12 @@ fn date_proto_to_json() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new("2020-07-08T09:16:15.779Z"), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_string() {
+fn date_proto_to_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1209,10 +1287,12 @@ fn date_proto_to_string() {
         )),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_time_string() {
+fn date_proto_to_time_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1235,10 +1315,12 @@ fn date_proto_to_time_string() {
         )),
         actual
     );
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_to_utc_string() {
+fn date_proto_to_utc_string() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1247,10 +1329,12 @@ fn date_proto_to_utc_string() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new("Wed, 08 Jul 2020 09:16:15 GMT"), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_proto_value_of() {
+fn date_proto_value_of() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1259,10 +1343,12 @@ fn date_proto_value_of() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new(1594199775779f64), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_neg() {
+fn date_neg() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1271,10 +1357,12 @@ fn date_neg() {
     )
     .expect("Successful eval");
     assert_eq!(JsValue::new(-1594199775779f64), actual);
+
+    Ok(())
 }
 
 #[test]
-fn date_json() {
+fn date_json() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::default();
 
     let actual = forward_val(
@@ -1286,4 +1374,6 @@ fn date_json() {
         JsValue::new(r#"{"date":"2020-07-08T09:16:15.779Z"}"#),
         actual
     );
+
+    Ok(())
 }

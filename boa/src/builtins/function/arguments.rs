@@ -44,7 +44,7 @@ impl Arguments {
 
         // 3. Set obj.[[ParameterMap]] to undefined.
         // skipped because the `Arguments` enum ensures ordinary argument objects don't have a `[[ParameterMap]]`
-        obj.borrow_mut().data = ObjectData::arguments(Self::Unmapped);
+        obj.borrow_mut().data = ObjectData::arguments(Arguments::Unmapped);
 
         // 4. Perform DefinePropertyOrThrow(obj, "length", PropertyDescriptor { [[Value]]: 𝔽(len),
         // [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
@@ -133,7 +133,7 @@ impl Arguments {
         // 11. Set obj.[[ParameterMap]] to map.
         let obj = JsObject::from_proto_and_data(
             context.standard_objects().object_object().prototype(),
-            ObjectData::arguments(Self::Mapped(MappedArguments(map.clone()))),
+            ObjectData::arguments(Arguments::Mapped(MappedArguments(map.clone()))),
         );
 
         // 14. Let index be 0.
@@ -169,18 +169,12 @@ impl Arguments {
         // 19. Repeat, while index ≥ 0,
         // a. Let name be parameterNames[index].
 
-<<<<<<< HEAD
         for (index, parameter_name_vec) in formals.iter().map(|fp| fp.names()).enumerate().rev() {
 <<<<<<< HEAD
             for parameter_name in parameter_name_vec.iter().cloned() {
                 // b. If name is not an element of mappedNames, then
                 if !mapped_names.contains(parameter_name) {
 =======
-=======
-        for (index, parameter_name_vec) in
-            formals.iter().map(FormalParameter::names).enumerate().rev()
-        {
->>>>>>> 7779c1a6f1f5d467c3307ab0cff1aa412a990db5
             for parameter_name in parameter_name_vec.iter().copied() {
                 // b. If name is not an element of mappedNames, then
                 if !mapped_names.contains(&parameter_name) {
@@ -206,7 +200,7 @@ impl Arguments {
                                     captures.0.get_binding_value(captures.1, false, context)
 >>>>>>> d96b6407d5b3a8ac6bc3e54138fcd6273eddebeb
                                 },
-                                (env.clone(), parameter_name),
+                                (env.clone(), parameter_name.to_owned()),
                             )
                             .length(0)
                             .name("")
@@ -235,7 +229,7 @@ impl Arguments {
                                         .map(|_| JsValue::Undefined)
                                     // Ok(JsValue::Undefined)
                                 },
-                                (env.clone(), parameter_name),
+                                (env.clone(), parameter_name.to_owned()),
                             )
                             .length(1)
                             .name("")

@@ -2,7 +2,7 @@
 //!
 //! Objects wrap `Function`s and expose them via call/construct slots.
 //!
-//! The `Function` object is used for matching text with a pattern.
+//! `The `Function` object is used for matching text with a pattern.
 //!
 //! More information:
 //!  - [ECMAScript reference][spec]
@@ -178,8 +178,7 @@ impl Captures {
 
 /// Boa representation of a Function Object.
 ///
-/// `FunctionBody` is specific to this interpreter, it will either be Rust code or JavaScript code
-/// (AST Node).
+/// FunctionBody is specific to this interpreter, it will either be Rust code or JavaScript code (AST Node)
 ///
 /// <https://tc39.es/ecma262/#sec-ecmascript-function-objects>
 #[derive(Trace, Finalize)]
@@ -271,7 +270,8 @@ impl Function {
     /// Returns true if the function object is a constructor.
     pub fn is_constructor(&self) -> bool {
         match self {
-            Self::Native { constructor, .. } | Self::Closure { constructor, .. } => *constructor,
+            Self::Native { constructor, .. } => *constructor,
+            Self::Closure { constructor, .. } => *constructor,
             Self::VmOrdinary { code, .. } => code.constructor,
         }
     }
@@ -606,7 +606,6 @@ impl BuiltInFunctionObject {
         Ok(JsValue::ordinary_has_instance(this, args.get_or_undefined(0), context)?.into())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn prototype(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         Ok(JsValue::undefined())
     }
@@ -753,7 +752,7 @@ impl BoundFunction {
         Ok(JsObject::from_proto_and_data(
             proto,
             ObjectData::bound_function(
-                Self {
+                BoundFunction {
                     target_function,
                     this,
                     args,

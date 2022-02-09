@@ -53,7 +53,7 @@ impl ToInternedString for Continue {
 }
 
 impl From<Continue> for Node {
-    fn from(cont: Continue) -> Self {
+    fn from(cont: Continue) -> Node {
         Self::Continue(cont)
     }
 }

@@ -211,16 +211,16 @@ impl Inner {
     fn new(s: &str) -> NonNull<Self> {
         // We get the layout of the `Inner` type and we extend by the size
         // of the string array.
-        let inner_layout = Layout::new::<Self>();
+        let inner_layout = Layout::new::<Inner>();
         let (layout, offset) = inner_layout
             .extend(Layout::array::<u8>(s.len()).unwrap())
             .unwrap();
 
         let inner = unsafe {
-            let inner = alloc(layout).cast::<Self>();
+            let inner = alloc(layout) as *mut Inner;
 
             // Write the first part, the Inner.
-            inner.write(Self {
+            inner.write(Inner {
                 len: s.len(),
                 refcount: Cell::new(1),
                 data: [0; 0],
@@ -243,7 +243,7 @@ impl Inner {
 
     /// Concatenate array of strings.
     #[inline]
-    fn concat_array(strings: &[&str]) -> NonNull<Self> {
+    fn concat_array(strings: &[&str]) -> NonNull<Inner> {
         let mut total_string_size = 0;
         for string in strings {
             total_string_size += string.len();
@@ -251,16 +251,16 @@ impl Inner {
 
         // We get the layout of the `Inner` type and we extend by the size
         // of the string array.
-        let inner_layout = Layout::new::<Self>();
+        let inner_layout = Layout::new::<Inner>();
         let (layout, offset) = inner_layout
             .extend(Layout::array::<u8>(total_string_size).unwrap())
             .unwrap();
 
         let inner = unsafe {
-            let inner = alloc(layout).cast::<Self>();
+            let inner = alloc(layout) as *mut Inner;
 
             // Write the first part, the Inner.
-            inner.write(Self {
+            inner.write(Inner {
                 len: total_string_size,
                 refcount: Cell::new(1),
                 data: [0; 0],
@@ -287,15 +287,15 @@ impl Inner {
 
     /// Deallocate inner type with string data.
     #[inline]
-    unsafe fn dealloc(x: NonNull<Self>) {
+    unsafe fn dealloc(x: NonNull<Inner>) {
         let len = (*x.as_ptr()).len;
 
-        let inner_layout = Layout::new::<Self>();
+        let inner_layout = Layout::new::<Inner>();
         let (layout, _offset) = inner_layout
             .extend(Layout::array::<u8>(len).unwrap())
             .unwrap();
 
-        dealloc(x.as_ptr().cast::<_>(), layout);
+        dealloc(x.as_ptr() as _, layout);
     }
 }
 
@@ -322,7 +322,7 @@ impl JsString {
     /// Create an empty string, same as calling default.
     #[inline]
     pub fn empty() -> Self {
-        Self::default()
+        JsString::default()
     }
 
     /// Create a new JavaScript string.
@@ -343,7 +343,7 @@ impl JsString {
     }
 
     /// Concatenate two string.
-    pub fn concat<T, U>(x: T, y: U) -> Self
+    pub fn concat<T, U>(x: T, y: U) -> JsString
     where
         T: AsRef<str>,
         U: AsRef<str>,
@@ -366,7 +366,7 @@ impl JsString {
     }
 
     /// Concatenate array of string.
-    pub fn concat_array(strings: &[&str]) -> Self {
+    pub fn concat_array(strings: &[&str]) -> JsString {
         let this = Self {
             inner: Inner::concat_array(strings),
             _marker: PhantomData,
@@ -500,7 +500,7 @@ impl Clone for JsString {
         let inner = self.inner();
         inner.refcount.set(inner.refcount.get() + 1);
 
-        Self {
+        JsString {
             inner: self.inner,
             _marker: PhantomData,
         }
@@ -581,7 +581,7 @@ impl Deref for JsString {
     }
 }
 
-impl PartialEq<Self> for JsString {
+impl PartialEq<JsString> for JsString {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         // If they point at the same memory allocation, then they are equal.
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let _empty = JsString::new("");
+        let _ = JsString::new("");
     }
 
     #[test]

@@ -1,9 +1,8 @@
 //! This module implements the global `RegExp String Iterator` object.
 //!
-//! A `RegExp` String Iterator is an object, that represents a specific iteration over some
-//! specific String instance object, matching against some specific `RegExp` instance object.
-//! There is not a named constructor for `RegExp` String Iterator objects. Instead, `RegExp`
-//! String Iterator objects are created by calling certain methods of `RegExp` instance objects.
+//! A RegExp String Iterator is an object, that represents a specific iteration over some specific String instance object, matching against some specific RegExp instance object.
+//! There is not a named constructor for RegExp String Iterator objects.
+//! Instead, RegExp String Iterator objects are created by calling certain methods of RegExp instance objects.
 //!
 //! More information:
 //!  - [ECMAScript reference][spec]
@@ -55,7 +54,7 @@ impl RegExpStringIterator {
         global: bool,
         unicode: bool,
         context: &mut Context,
-    ) -> JsValue {
+    ) -> JsResult<JsValue> {
         // TODO: Implement this with closures and generators.
         //       For now all values of the closure are stored in RegExpStringIterator and the actual closure execution is in `.next()`.
 
@@ -73,11 +72,11 @@ impl RegExpStringIterator {
             ObjectData::reg_exp_string_iterator(Self::new(matcher, string, global, unicode)),
         );
 
-        regexp_string_iterator.into()
+        Ok(regexp_string_iterator.into())
     }
 
     pub fn next(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-        let mut iterator = this.as_object().map(JsObject::borrow_mut);
+        let mut iterator = this.as_object().map(|obj| obj.borrow_mut());
         let iterator = iterator
             .as_mut()
             .and_then(|obj| obj.as_regexp_string_iterator_mut())
@@ -117,7 +116,7 @@ impl RegExpStringIterator {
 
                 // 2. Let nextIndex be ! AdvanceStringIndex(S, thisIndex, fullUnicode).
                 let next_index =
-                    advance_string_index(&iterator.string, this_index, iterator.unicode);
+                    advance_string_index(iterator.string.clone(), this_index, iterator.unicode);
 
                 // 3. Perform ? Set(R, "lastIndex", 𝔽(nextIndex), true).
                 iterator
@@ -138,7 +137,7 @@ impl RegExpStringIterator {
         }
     }
 
-    /// Create the `%ArrayIteratorPrototype%` object
+    /// Create the %ArrayIteratorPrototype% object
     ///
     /// More information:
     ///  - [ECMA reference][spec]

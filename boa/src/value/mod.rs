@@ -24,7 +24,7 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     fmt::{self, Display},
-    ops::Sub,
+    ops::{Deref, Sub},
     str::FromStr,
 };
 
@@ -75,7 +75,7 @@ pub enum JsValue {
     Symbol(JsSymbol),
 }
 
-/// Represents the result of `ToIntegerOrInfinity` operation
+/// Represents the result of ToIntegerOrInfinity operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntegerOrInfinity {
     Integer(i64),
@@ -140,7 +140,7 @@ impl JsValue {
     /// It determines if the value is a callable function with a `[[Call]]` internal method.
     ///
     /// More information:
-    /// - [ECMAScript reference][spec]
+    /// - [EcmaScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-iscallable
     #[inline]
@@ -207,7 +207,7 @@ impl JsValue {
     pub fn is_integer(&self) -> bool {
         // If it can fit in a i32 and the trucated version is
         // equal to the original then it is an integer.
-        let is_racional_intiger = |n: f64| n == f64::from(n as i32);
+        let is_racional_intiger = |n: f64| n == ((n as i32) as f64);
 
         match *self {
             Self::Integer(_) => true,
@@ -266,7 +266,7 @@ impl JsValue {
         matches!(self, Self::BigInt(_))
     }
 
-    /// Returns an optional reference to a `BigInt` if the value is a `BigInt` primitive.
+    /// Returns an optional reference to a `BigInt` if the value is a BigInt primitive.
     #[inline]
     pub fn as_bigint(&self) -> Option<&JsBigInt> {
         match self {
@@ -314,17 +314,15 @@ impl JsValue {
                 object
                     .prototype()
                     .as_ref()
-                    .map_or(Self::Null, |obj| obj.clone().into())
+                    .map_or(JsValue::Null, |obj| obj.clone().into())
                     .get_property(key)
             }
             _ => None,
         }
     }
 
-    /**
-    Resolve the property in the object and get its value, or undefined if this is not an object or the field doesn't exist
-    `get_field` receives a Property from get_prop(). It should then return the `[[Get]]` result value if that's set, otherwise fall back to `[[Value]]`
-    */
+    /// Resolve the property in the object and get its value, or undefined if this is not an object or the field doesn't exist
+    /// get_field receives a Property from get_prop(). It should then return the `[[Get]]` result value if that's set, otherwise fall back to `[[Value]]`
     pub(crate) fn get_field<K>(&self, key: K, context: &mut Context) -> JsResult<Self>
     where
         K: Into<PropertyKey>,
@@ -334,7 +332,7 @@ impl JsValue {
             obj.clone()
                 .__get__(&key.into(), obj.clone().into(), context)
         } else {
-            Ok(Self::undefined())
+            Ok(JsValue::undefined())
         }
     }
 
@@ -353,10 +351,10 @@ impl JsValue {
         value: V,
         throw: bool,
         context: &mut Context,
-    ) -> JsResult<Self>
+    ) -> JsResult<JsValue>
     where
         K: Into<PropertyKey>,
-        V: Into<Self>,
+        V: Into<JsValue>,
     {
         // 1. Assert: Type(O) is Object.
         // TODO: Currently the value may not be an object.
@@ -377,8 +375,9 @@ impl JsValue {
             // 6. Return success.
             if !success && throw {
                 return context.throw_type_error("Cannot assign value to property");
+            } else {
+                return Ok(value);
             }
-            return Ok(value);
         }
         Ok(value)
     }
@@ -403,14 +402,14 @@ impl JsValue {
         }
     }
 
-    /// The abstract operation `ToPrimitive` takes an input argument and an optional argumen`PreferredType`pe.
+    /// The abstract operation ToPrimitive takes an input argument and an optional argument PreferredType.
     ///
     /// <https://tc39.es/ecma262/#sec-toprimitive>
     pub fn to_primitive(
         &self,
         context: &mut Context,
         preferred_type: PreferredType,
-    ) -> JsResult<Self> {
+    ) -> JsResult<JsValue> {
         // 1. Assert: input is an ECMAScript language value. (always a value not need to check)
         // 2. If Type(input) is Object, then
         if self.is_object() {
@@ -530,7 +529,7 @@ impl JsValue {
 
     /// Converts the value to an Object.
     ///
-    /// This function is equivalent to `Object(value)` in JavaScript.
+    /// This function is equivalent to `Object(value)` in JavaScript
     ///
     /// See: <https://tc39.es/ecma262/#sec-toobject>
     pub fn to_object(&self, context: &mut Context) -> JsResult<JsObject> {
@@ -818,8 +817,8 @@ impl JsValue {
         let int64_bit = n.as_inner().mod_floor(&TWO_E_64);
 
         // 3. If int64bit ≥ 2^63, return ℤ(int64bit - 2^64); otherwise return ℤ(int64bit).
-        if int64_bit >= *TWO_E_63 {
-            Ok(int64_bit.sub(&*TWO_E_64))
+        if &int64_bit >= TWO_E_63.deref() {
+            Ok(int64_bit.sub(TWO_E_64.deref()))
         } else {
             Ok(int64_bit)
         }
@@ -949,7 +948,7 @@ impl JsValue {
     /// [table]: https://tc39.es/ecma262/#table-14
     /// [spec]: https://tc39.es/ecma262/#sec-requireobjectcoercible
     #[inline]
-    pub fn require_object_coercible(&self, context: &mut Context) -> JsResult<&Self> {
+    pub fn require_object_coercible(&self, context: &mut Context) -> JsResult<&JsValue> {
         if self.is_null_or_undefined() {
             context.throw_type_error("cannot convert null or undefined to Object")
         } else {
@@ -1004,7 +1003,7 @@ impl JsValue {
     /// given ECMA Value.
     ///
     /// More information:
-    /// - [ECMAScript reference][spec]
+    /// - [EcmaScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-typeof-operator
     pub fn type_of(&self) -> JsString {

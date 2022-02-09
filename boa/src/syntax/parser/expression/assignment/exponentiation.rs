@@ -66,10 +66,13 @@ where
     Ok(if let Some(tok) = cursor.peek(0, interner)? {
         matches!(
             tok.kind(),
-            TokenKind::Keyword(Keyword::Delete | Keyword::Void | Keyword::TypeOf)
-                | TokenKind::Punctuator(
-                    Punctuator::Add | Punctuator::Sub | Punctuator::Not | Punctuator::Neg
-                )
+            TokenKind::Keyword(Keyword::Delete)
+                | TokenKind::Keyword(Keyword::Void)
+                | TokenKind::Keyword(Keyword::TypeOf)
+                | TokenKind::Punctuator(Punctuator::Add)
+                | TokenKind::Punctuator(Punctuator::Sub)
+                | TokenKind::Punctuator(Punctuator::Not)
+                | TokenKind::Punctuator(Punctuator::Neg)
         )
     } else {
         false

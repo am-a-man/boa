@@ -99,7 +99,7 @@ impl ToInternedString for Try {
 
 impl From<Try> for Node {
     fn from(try_catch: Try) -> Self {
-        Self::Try(Box::new(try_catch))
+        Self::Try(try_catch)
     }
 }
 

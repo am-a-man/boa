@@ -1,12 +1,9 @@
-use super::{
-    Context, FromStr, JsBigInt, JsResult, JsString, JsValue, Numeric, PreferredType, TryFrom,
-    WellKnownSymbols,
-};
+use super::*;
 use crate::builtins::number::{f64_to_int32, f64_to_uint32, Number};
 
 impl JsValue {
     #[inline]
-    pub fn add(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn add(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(f64::from(*x) + f64::from(*y)),
@@ -46,7 +43,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn sub(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn sub(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(f64::from(*x) - f64::from(*y)),
@@ -70,7 +67,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn mul(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn mul(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(f64::from(*x) * f64::from(*y)),
@@ -94,7 +91,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn div(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn div(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(f64::from(*x) / f64::from(*y)),
@@ -128,7 +125,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn rem(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn rem(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => {
@@ -175,7 +172,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn pow(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn pow(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(f64::from(*x).powi(*y)),
@@ -201,7 +198,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn bitand(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn bitand(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(x & y),
@@ -231,7 +228,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn bitor(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn bitor(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(x | y),
@@ -261,7 +258,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn bitxor(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn bitxor(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(x ^ y),
@@ -291,7 +288,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn shl(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn shl(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(x.wrapping_shl(*y as u32)),
@@ -325,7 +322,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn shr(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn shr(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new(x.wrapping_shr(*y as u32)),
@@ -359,7 +356,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn ushr(&self, other: &Self, context: &mut Context) -> JsResult<Self> {
+    pub fn ushr(&self, other: &Self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match (self, other) {
             // Fast path:
             (Self::Integer(x), Self::Integer(y)) => Self::new((*x as u32).wrapping_shr(*y as u32)),
@@ -394,11 +391,11 @@ impl JsValue {
     /// Abstract operation `InstanceofOperator ( V, target )`
     ///
     /// More information:
-    /// - [ECMAScript reference][spec]
+    /// - [EcmaScript reference][spec]
     ///
     /// [spec]: https://tc39.es/ecma262/#sec-instanceofoperator
     #[inline]
-    pub fn instance_of(&self, target: &Self, context: &mut Context) -> JsResult<bool> {
+    pub fn instance_of(&self, target: &JsValue, context: &mut Context) -> JsResult<bool> {
         // 1. If Type(target) is not Object, throw a TypeError exception.
         if !target.is_object() {
             return context.throw_type_error(format!(
@@ -418,7 +415,7 @@ impl JsValue {
             }
             None if target.is_callable() => {
                 // 5. Return ? OrdinaryHasInstance(target, V).
-                Self::ordinary_has_instance(target, self, context)
+                JsValue::ordinary_has_instance(target, self, context)
             }
             None => {
                 // 4. If IsCallable(target) is false, throw a TypeError exception.
@@ -428,7 +425,7 @@ impl JsValue {
     }
 
     #[inline]
-    pub fn neg(&self, context: &mut Context) -> JsResult<Self> {
+    pub fn neg(&self, context: &mut Context) -> JsResult<JsValue> {
         Ok(match *self {
             Self::Symbol(_) | Self::Undefined => Self::new(f64::NAN),
             Self::Object(_) => Self::new(match self.to_numeric_number(context) {
@@ -461,7 +458,7 @@ impl JsValue {
     /// In addition to `x` and `y` the algorithm takes a Boolean flag named `LeftFirst` as a parameter.
     /// The flag is used to control the order in which operations with potentially visible side-effects
     /// are performed upon `x` and `y`. It is necessary because ECMAScript specifies left to right evaluation
-    /// of expressions. The default value of `LeftFirst` is `true` and indicates that the `x` parameter
+    /// of expressions. The default value of LeftFirst is `true` and indicates that the `x` parameter
     /// corresponds to an expression that occurs to the left of the `y` parameter's corresponding expression.
     ///
     /// If `LeftFirst` is `false`, the reverse is the case and operations must be performed upon `y` before `x`.
@@ -653,9 +650,9 @@ impl From<bool> for AbstractRelation {
     #[inline]
     fn from(value: bool) -> Self {
         if value {
-            Self::True
+            AbstractRelation::True
         } else {
-            Self::False
+            AbstractRelation::False
         }
     }
 }

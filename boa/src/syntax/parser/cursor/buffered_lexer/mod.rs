@@ -17,12 +17,12 @@ const MAX_PEEK_SKIP: usize = 3;
 /// The fixed size of the buffer used for storing values that are peeked ahead.
 ///
 /// The size is calculated for a worst case scenario, where we want to peek `MAX_PEEK_SKIP` tokens
-/// skipping line terminators, and the stream ends just after:
+/// skipping line terminators:
 /// ```text
-/// [\n, B, \n, C, \n, D, \n, E, \n, F, None]
-///   0  0   1  1   2  2   3  3   4  4  5
+/// [\n, B, \n, C, \n, D, \n, E, \n, F]
+///   0  0   1  1   2  2   3  3   4  4
 /// ```
-const PEEK_BUF_SIZE: usize = (MAX_PEEK_SKIP + 1) * 2 + 1;
+const PEEK_BUF_SIZE: usize = (MAX_PEEK_SKIP + 1) * 2;
 
 #[derive(Debug)]
 pub(super) struct BufferedLexer<R> {
@@ -41,7 +41,6 @@ where
         Self {
             lexer,
             peeked: [
-                None::<Token>,
                 None::<Token>,
                 None::<Token>,
                 None::<Token>,
@@ -75,7 +74,7 @@ where
     #[inline]
     pub(super) fn set_goal(&mut self, elm: InputElement) {
         let _timer = BoaProfiler::global().start_event("cursor::set_goal()", "Parsing");
-        self.lexer.set_goal(elm);
+        self.lexer.set_goal(elm)
     }
 
     /// Lexes the next tokens as a regex assuming that the starting '/' has already been consumed.
@@ -89,7 +88,7 @@ where
         self.set_goal(InputElement::RegExp);
         self.lexer
             .lex_slash_token(start, interner)
-            .map_err(Into::into)
+            .map_err(|e| e.into())
     }
 
     /// Lexes the next tokens as template middle or template tail assuming that the starting
@@ -111,7 +110,7 @@ where
 
     #[inline]
     pub(super) fn set_strict_mode(&mut self, strict_mode: bool) {
-        self.lexer.set_strict_mode(strict_mode);
+        self.lexer.set_strict_mode(strict_mode)
     }
 
     /// Fills the peeking buffer with the next token.
@@ -163,7 +162,7 @@ where
 
     /// Moves the cursor to the next token and returns the token.
     ///
-    /// If `skip_line_terminators` is true then line terminators will be discarded.
+    /// If skip_line_terminators is true then line terminators will be discarded.
     ///
     /// This follows iterator semantics in that a `peek(0, false)` followed by a `next(false)` will
     /// return the same value. Note that because a `peek(n, false)` may return a line terminator a

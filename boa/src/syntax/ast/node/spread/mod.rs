@@ -56,7 +56,7 @@ impl ToInternedString for Spread {
 }
 
 impl From<Spread> for Node {
-    fn from(spread: Spread) -> Self {
+    fn from(spread: Spread) -> Node {
         Self::Spread(spread)
     }
 }
